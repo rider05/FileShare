@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace FileShare.Win;
@@ -9,8 +10,8 @@ class MainForm : Form
 {
     readonly ListBox _devices = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true };
     readonly ListBox _queueList = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true };
-    readonly TextBox _txtIp = new() { Width = 160, BorderStyle = BorderStyle.FixedSingle };
-    readonly TextBox _txtDir = new() { Width = 260, ReadOnly = true, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White, ForeColor = Color.FromArgb(0x6B, 0x72, 0x80) };
+    readonly TextBox _txtIp = new() { Width = 160, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0xEE, 0xF3, 0xFB) };
+    readonly TextBox _txtDir = new() { Width = 260, ReadOnly = true, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0x8C, 0xA3, 0xC7) };
     readonly FlatBar _bar = new() { Dock = DockStyle.Bottom, Height = 6, Margin = new Padding(16, 4, 16, 6) };
     readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 24, TextAlign = ContentAlignment.MiddleLeft };
     readonly Label _partials = new() { Dock = DockStyle.Bottom, Height = 20, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(0x6B, 0x72, 0x80) };
@@ -38,27 +39,33 @@ class MainForm : Form
     readonly System.Windows.Forms.Timer _timer = new() { Interval = 500 };
     int _tickCount;
 
-    // Fluent 2 light palette from ui-preview.html
-    static readonly Color Ink = Color.FromArgb(0x1A, 0x1A, 0x1A);
-    static readonly Color Dim = Color.FromArgb(0x6B, 0x72, 0x80);
-    static readonly Color Accent = Color.FromArgb(0x00, 0x5F, 0xB8);
-    static readonly Color AccentSel = Color.FromArgb(0xDC, 0xEB, 0xF9);
-    static readonly Color SendC = Color.FromArgb(0x0F, 0x6C, 0xBD);
-    static readonly Color WarnC = Color.FromArgb(0xB5, 0x47, 0x08);
-    static readonly Color OkC = Color.FromArgb(0x06, 0x76, 0x47);
-    static readonly Color BadC = Color.FromArgb(0xB4, 0x23, 0x18);
+    // ShareIt-style dark palette
+    static readonly Color Ink = Color.FromArgb(0xEE, 0xF3, 0xFB);
+    static readonly Color Dim = Color.FromArgb(0x8C, 0xA3, 0xC7);
+    static readonly Color Accent = Color.FromArgb(0x00, 0xA6, 0xFF);
+    static readonly Color AccentSel = Color.FromArgb(0x11, 0x3B, 0x66);
+    static readonly Color SendC = Color.FromArgb(0x00, 0xA6, 0xFF);
+    static readonly Color WarnC = Color.FromArgb(0xF5, 0x9E, 0x0B);
+    static readonly Color OkC = Color.FromArgb(0x22, 0xC5, 0x5E);
+    static readonly Color BadC = Color.FromArgb(0xEF, 0x44, 0x44);
+    static readonly Color Bg = Color.FromArgb(0x0E, 0x17, 0x26);
+    static readonly Color Card = Color.FromArgb(0x16, 0x23, 0x3A);
+    static readonly Color Edge = Color.FromArgb(0x2A, 0x3E, 0x5F);
+    // avatar circle colors, picked per device name
+    static readonly Color[] AvatarCols = {
+        Color.FromArgb(0x00, 0xA6, 0xFF), Color.FromArgb(0x7C, 0x5C, 0xFF), Color.FromArgb(0x00, 0xC9, 0xA7),
+        Color.FromArgb(0xFF, 0x8A, 0x3D), Color.FromArgb(0xE5, 0x4D, 0x8C),
+    };
 
     public MainForm()
     {
         Text = "FileShare";
         Font = new Font("Segoe UI", 9.5f);
-        BackColor = Color.FromArgb(0xF3, 0xF3, 0xF3);
+        BackColor = Bg;
         ForeColor = Ink;
         Size = new Size(920, 640);
         MinimumSize = new Size(700, 480);
-        AllowDrop = true;
-        DragEnter += (s, e) => { if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true) e.Effect = DragDropEffects.Copy; };
-        DragDrop += (s, e) => { if (e.Data?.GetData(DataFormats.FileDrop) is string[] files) AddFiles(files); };
+        WireDrop(this);
 
         SetupList(_devices, DrawDevices);
         SetupList(_queueList, DrawQueue);
@@ -84,15 +91,29 @@ class MainForm : Form
 
         var pQueue = new Panel { Dock = DockStyle.Fill };
         pQueue.Controls.Add(_queueList);
-        pQueue.Controls.Add(SectionLabel("Files and folders (drag and drop here, or use Add)"));
 
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, Height = 38, WrapContents = false, Margin = new Padding(0, 12, 0, 0) };
-        var btnAdd = MakeBtn("Add files…", 110);
-        btnAdd.Click += (s, e) =>
+        // ShareIt-style drop zone: click to browse, drop files or folders
+        var drop = new Panel { Dock = DockStyle.Top, Height = 92, BackColor = Card, Padding = new Padding(0, 0, 0, 2) };
+        var dropMain = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Text = "Drag files or folders here", ForeColor = Ink, Font = new Font("Segoe UI", 11.5f) };
+        var dropSub = new Label { Dock = DockStyle.Bottom, Height = 22, TextAlign = ContentAlignment.MiddleCenter, Text = "or click to browse", ForeColor = Dim };
+        drop.Controls.Add(dropMain);
+        drop.Controls.Add(dropSub);
+        Action browse = () =>
         {
             using var dlg = new OpenFileDialog { Multiselect = true, Title = "Files to send" };
             if (dlg.ShowDialog(this) == DialogResult.OK) AddFiles(dlg.FileNames);
         };
+        foreach (var c in new Control[] { drop, dropMain, dropSub })
+        {
+            WireDrop(c);
+            c.Cursor = Cursors.Hand;
+            c.Click += (s, e) => browse();
+        }
+        pQueue.Controls.Add(drop);
+
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, Height = 38, WrapContents = false, Margin = new Padding(0, 12, 0, 0) };
+        var btnAdd = MakeBtn("Add files…", 110);
+        btnAdd.Click += (s, e) => browse();
         buttons.Controls.Add(btnAdd);
         var btnFolder = MakeBtn("Add folder…", 112);
         btnFolder.Click += (s, e) =>
@@ -427,6 +448,16 @@ class MainForm : Form
 
     static string Pct(TransferItem i) => i.Size <= 0 ? "0%" : $"{100.0 * i.Progress / i.Size:F0}%";
 
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        var on = 1;
+        DwmSetWindowAttribute(Handle, 20, ref on, 4); // DWMWA_USE_IMMERSIVE_DARK_MODE: dark title bar (Win10 20H1+)
+    }
+
+    [DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         _timer.Stop();
@@ -455,17 +486,17 @@ class MainForm : Form
             b.BackColor = Accent;
             b.ForeColor = Color.White;
             fa.BorderSize = 0;
-            fa.MouseOverBackColor = Color.FromArgb(0x0B, 0x6C, 0xC9);
-            fa.MouseDownBackColor = Color.FromArgb(0x0B, 0x53, 0x9C);
+            fa.MouseOverBackColor = Color.FromArgb(0x2F, 0xBB, 0xFF);
+            fa.MouseDownBackColor = Color.FromArgb(0x00, 0x86, 0xCC);
         }
         else
         {
-            b.BackColor = Color.FromArgb(0xFB, 0xFB, 0xFB);
+            b.BackColor = Card;
             b.ForeColor = Ink;
             fa.BorderSize = 1;
-            fa.BorderColor = Color.FromArgb(0xD1, 0xD1, 0xD1);
-            fa.MouseOverBackColor = Color.FromArgb(0xF0, 0xF0, 0xF0);
-            fa.MouseDownBackColor = Color.FromArgb(0xE4, 0xE4, 0xE4);
+            fa.BorderColor = Edge;
+            fa.MouseOverBackColor = Color.FromArgb(0x1D, 0x2E, 0x4B);
+            fa.MouseDownBackColor = Color.FromArgb(0x24, 0x38, 0x57);
         }
         return b;
     }
@@ -473,12 +504,22 @@ class MainForm : Form
     void SetupList(ListBox lb, DrawItemEventHandler draw)
     {
         lb.DrawMode = DrawMode.OwnerDrawFixed;
-        lb.ItemHeight = 22;
+        lb.ItemHeight = 26;
         lb.BorderStyle = BorderStyle.FixedSingle;
+        lb.BackColor = Card;
+        lb.ForeColor = Ink;
         lb.DrawItem += draw;
         typeof(Control).GetProperty("DoubleBuffered",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .SetValue(lb, true); // the queue repaints twice a second; kill flicker
+    }
+
+    // children don't inherit drag-drop; wire the form, lists and drop card so dropping works anywhere
+    void WireDrop(Control c)
+    {
+        c.AllowDrop = true;
+        c.DragEnter += (s, e) => { if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true) e.Effect = DragDropEffects.Copy; };
+        c.DragDrop += (s, e) => { if (e.Data?.GetData(DataFormats.FileDrop) is string[] files) AddFiles(files); };
     }
 
     void DrawDevices(object? s, DrawItemEventArgs e)
@@ -486,8 +527,9 @@ class MainForm : Form
         if (e.Index < 0 || e.Index >= _shown.Count) return;
         var p = _shown[e.Index];
         var manual = p.Platform == "manual";
+        var av = manual ? Edge : AvatarCols[(p.Name.GetHashCode() & 0x7FFFFFFF) % AvatarCols.Length];
         DrawRow(e, $"{p.Name}  ({p.Platform})",
-            manual ? Dim : Ink, p.Ip, Dim, (e.State & DrawItemState.Selected) != 0);
+            Ink, p.Ip, Dim, (e.State & DrawItemState.Selected) != 0, p.Name[0], av);
     }
 
     void DrawQueue(object? s, DrawItemEventArgs e)
@@ -510,8 +552,9 @@ class MainForm : Form
         DrawRow(e, i.DisplayName, nameColor, right, rightColor, false);
     }
 
-    // one list row: left label, right-aligned secondary text, tinted when selected
-    void DrawRow(DrawItemEventArgs e, string left, Color leftColor, string right, Color rightColor, bool selected)
+    // one list row: optional letter avatar, left label, right-aligned secondary text, tinted when selected
+    void DrawRow(DrawItemEventArgs e, string left, Color leftColor, string right, Color rightColor, bool selected,
+        char avatar = '\0', Color avatarBg = default)
     {
         if (selected)
             using (var bg = new SolidBrush(AccentSel)) e.Graphics.FillRectangle(bg, e.Bounds);
@@ -521,10 +564,21 @@ class MainForm : Form
         using var bl = new SolidBrush(leftColor);
         using var br = new SolidBrush(rightColor);
         var r = new Rectangle(e.Bounds.X + 8, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 16), e.Bounds.Height);
+        var leftX = r.X;
+        if (avatar != '\0')
+        {
+            var d = Math.Min(18, r.Height - 6);
+            var c = new Rectangle(r.X + 2, r.Y + (r.Height - d) / 2, d, d);
+            using var ba = new SolidBrush(avatarBg);
+            e.Graphics.FillEllipse(ba, c);
+            using var sa = new StringFormat { LineAlignment = StringAlignment.Center, Alignment = StringAlignment.Center };
+            e.Graphics.DrawString(char.ToUpperInvariant(avatar).ToString(), f, Brushes.White, c, sa);
+            leftX = c.Right + 8;
+        }
         var rw = right.Length == 0 ? 0 : (int)e.Graphics.MeasureString(right, f, r.Width).Width;
         if (rw > 0)
             e.Graphics.DrawString(right, f, br, new Rectangle(r.Right - rw, r.Y, rw, r.Height), sfR);
-        e.Graphics.DrawString(left, f, bl, new Rectangle(r.X, r.Y, Math.Max(0, r.Width - rw - 12), r.Height), sfL);
+        e.Graphics.DrawString(left, f, bl, new Rectangle(leftX, r.Y, Math.Max(0, r.Right - rw - 12 - leftX), r.Height), sfL);
     }
 }
 
@@ -542,7 +596,7 @@ sealed class FlatBar : Control
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                  ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        BackColor = Color.FromArgb(0xF3, 0xF3, 0xF3);
+        BackColor = Color.FromArgb(0x0E, 0x17, 0x26);
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -550,13 +604,13 @@ sealed class FlatBar : Control
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         var track = new RectangleF(0, (Height - 4) / 2f, Width, 4);
-        using (var bt = new SolidBrush(Color.FromArgb(0xE6, 0xE6, 0xE6)))
+        using (var bt = new SolidBrush(Color.FromArgb(0x23, 0x36, 0x50)))
         using (var pt = Capsule(track))
             g.FillPath(bt, pt);
         if (_frac > 0.001)
         {
             var fill = track with { Width = Math.Max(4f, (float)(track.Width * _frac)) };
-            using var bf = new SolidBrush(Color.FromArgb(0x00, 0x5F, 0xB8));
+            using var bf = new SolidBrush(Color.FromArgb(0x00, 0xA6, 0xFF));
             using var pf = Capsule(fill);
             g.FillPath(bf, pf);
         }
