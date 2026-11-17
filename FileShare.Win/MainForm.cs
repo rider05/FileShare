@@ -84,7 +84,7 @@ class MainForm : Form
 
         var pQueue = new Panel { Dock = DockStyle.Fill };
         pQueue.Controls.Add(_queueList);
-        pQueue.Controls.Add(SectionLabel("Files (drag and drop here, or use Add files)"));
+        pQueue.Controls.Add(SectionLabel("Files and folders (drag and drop here, or use Add)"));
 
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, Height = 38, WrapContents = false, Margin = new Padding(0, 12, 0, 0) };
         var btnAdd = MakeBtn("Add files…", 110);
@@ -94,6 +94,13 @@ class MainForm : Form
             if (dlg.ShowDialog(this) == DialogResult.OK) AddFiles(dlg.FileNames);
         };
         buttons.Controls.Add(btnAdd);
+        var btnFolder = MakeBtn("Add folder…", 112);
+        btnFolder.Click += (s, e) =>
+        {
+            using var dlg = new FolderBrowserDialog { Description = "Folder to send" };
+            if (dlg.ShowDialog(this) == DialogResult.OK) AddFolder(dlg.SelectedPath);
+        };
+        buttons.Controls.Add(btnFolder);
         buttons.Controls.Add(_btnSend);
         buttons.Controls.Add(_btnPause);
         buttons.Controls.Add(_btnCancel);
@@ -197,24 +204,45 @@ class MainForm : Form
         _status.Text = "Added " + ip + ", select it and send.";
     }
 
-    void AddFiles(IEnumerable<string> paths)
+    void AddFiles(IEnumerable<string> paths, string relRoot = "")
     {
         foreach (var p in paths)
         {
+            if (Directory.Exists(p)) { AddFolder(p, relRoot); continue; }
             if (!File.Exists(p)) continue;
-            var ex = _queue.FirstOrDefault(i => string.Equals(i.Path, p, StringComparison.OrdinalIgnoreCase));
-            if (ex != null)
-            {
-                if (ex.State is not (TransferState.Sending or TransferState.Reconnecting or TransferState.Hashing or TransferState.Connecting))
-                {
-                    ex.State = TransferState.Pending;
-                    ex.Error = "";
-                }
-                continue;
-            }
-            _queue.Add(new TransferItem { Path = p, Size = new FileInfo(p).Length });
+            AddOne(p, relRoot);
         }
         RefreshQueue();
+    }
+
+    // queue a whole folder; files keep their layout ("Photos/sub/x.jpg" on the receiver)
+    void AddFolder(string dir, string relRoot = "")
+    {
+        var name = System.IO.Path.GetFileName(dir.TrimEnd('\\', '/'));
+        if (name.Length == 0) return;
+        var root = relRoot.Length > 0 ? relRoot + "/" + name : name;
+        var opt = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+        foreach (var f in Directory.EnumerateFiles(dir, "*", opt))
+        {
+            var rel = root + f[dir.Length..].Replace('\\', '/').TrimStart('/');
+            AddOne(f, rel);
+        }
+        RefreshQueue();
+    }
+
+    void AddOne(string path, string rel)
+    {
+        var ex = _queue.FirstOrDefault(i => string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (ex != null)
+        {
+            if (ex.State is not (TransferState.Sending or TransferState.Reconnecting or TransferState.Hashing or TransferState.Connecting))
+            {
+                ex.State = TransferState.Pending;
+                ex.Error = "";
+            }
+            return;
+        }
+        _queue.Add(new TransferItem { Path = path, Size = new FileInfo(path).Length, RelPath = rel });
     }
 
     void StartRun()
@@ -316,7 +344,7 @@ class MainForm : Form
 
         _queueList.BeginUpdate();
         _queueList.Items.Clear();
-        foreach (var i in _queue) _queueList.Items.Add(i.Name); // state rendered in DrawQueue
+        foreach (var i in _queue) _queueList.Items.Add(i.DisplayName); // state rendered in DrawQueue
         _queueList.EndUpdate();
 
         var active = _queue.FirstOrDefault(i => i.State is TransferState.Sending or TransferState.Reconnecting or TransferState.Hashing or TransferState.Connecting);
@@ -380,7 +408,8 @@ class MainForm : Form
     {
         try
         {
-            var n = Directory.GetFiles(Settings.ReceiveDir, "*.part").Length;
+            var n = Directory.EnumerateFiles(Settings.ReceiveDir, "*.part",
+                new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }).Count();
             _partials.Text = n == 0 ? "" : $"Partials waiting to auto-resume on re-send: {n}";
         }
         catch { }
@@ -478,7 +507,7 @@ class MainForm : Form
             TransferState.Pending => (Fmt(i.Size), Dim, Ink),
             _ => ("", Dim, Ink),
         };
-        DrawRow(e, i.Name, nameColor, right, rightColor, false);
+        DrawRow(e, i.DisplayName, nameColor, right, rightColor, false);
     }
 
     // one list row: left label, right-aligned secondary text, tinted when selected

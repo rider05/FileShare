@@ -26,6 +26,8 @@ class TransferItem
 {
     public string Path = "";
     public string Name => System.IO.Path.GetFileName(Path);
+    public string RelPath = "";   // relative path inside a transferred folder, '/'-separated ("" = flat)
+    public string DisplayName => RelPath.Length > 0 ? RelPath : Name;
     public long Size;
     public string Sha = "";
     public TransferState State = TransferState.Pending;
@@ -72,7 +74,7 @@ static class Sender
                 await client.ConnectAsync(host, port, ct);
                 await using var stream = client.GetStream();
 
-                await Proto.WriteJsonAsync(stream, new { v = 2, name = item.Name, size = item.Size, sha = item.Sha }, ct);
+                await Proto.WriteJsonAsync(stream, new { v = 2, name = item.Name, size = item.Size, sha = item.Sha, path = string.IsNullOrEmpty(item.RelPath) ? null : item.RelPath }, ct);
                 using var resumeDoc = JsonDocument.Parse(await Proto.ReadLineAsync(stream, ct));
                 long resume = resumeDoc.RootElement.TryGetProperty("resume", out var r) ? r.GetInt64() : 0;
                 if (resume < 0) throw new IOException("receiver busy with this file");
@@ -203,13 +205,24 @@ sealed class Receiver : IDisposable
                 long size = root.GetProperty("size").GetInt64();
                 string sha = root.GetProperty("sha").GetString() ?? "";
                 string name = Sanitize(root.GetProperty("name").GetString() ?? "file");
+                string rel = root.TryGetProperty("path", out var rp) ? SafeRel(rp.GetString() ?? "") : "";
                 if (size < 0) return;
 
-                var partPath = System.IO.Path.Combine(_dir, name + ".part");
+                // files from a transferred folder land in a matching subfolder; guard the canonical result
+                var subDir = _dir;
+                if (rel.Length > 0)
+                {
+                    subDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(_dir, rel.Replace('/', System.IO.Path.DirectorySeparatorChar)));
+                    if (!subDir.StartsWith(System.IO.Path.GetFullPath(_dir) + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                        subDir = _dir;
+                }
+                Directory.CreateDirectory(subDir);
+
+                var partPath = System.IO.Path.Combine(subDir, name + ".part");
                 var metaPath = partPath + ".meta";
 
-                // one writer per filename; a second simultaneous sender is told to back off
-                var gate = _fileLocks.GetOrAdd(name.ToLowerInvariant(), _ => new SemaphoreSlim(1, 1));
+                // one writer per file; key includes the subfolder so same-named files in different folders don't collide
+                var gate = _fileLocks.GetOrAdd((rel.Length > 0 ? rel + "/" : "") + name.ToLowerInvariant(), _ => new SemaphoreSlim(1, 1));
                 if (!await gate.WaitAsync(0, ct))
                 {
                     await Proto.WriteJsonAsync(stream, new { resume = -1 }, ct);
@@ -218,13 +231,12 @@ sealed class Receiver : IDisposable
                 var info = new RecvInfo
                 {
                     Ip = (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "",
-                    Name = name,
+                    Name = rel.Length > 0 ? rel + "/" + name : name,
                     Size = size,
                 };
                 Active[info] = 1;
                 try
                 {
-                    Directory.CreateDirectory(_dir);
                     long resume = 0;
                     if (File.Exists(partPath) && File.Exists(metaPath))
                     {
@@ -296,7 +308,7 @@ sealed class Receiver : IDisposable
                         return;
                     }
 
-                    var target = UniquePath(System.IO.Path.Combine(_dir, name));
+                    var target = UniquePath(System.IO.Path.Combine(subDir, name));
                     File.Move(partPath, target);
                     File.Delete(metaPath);
                     await Proto.WriteJsonAsync(stream, new { ok = true }, ct);
@@ -314,6 +326,16 @@ sealed class Receiver : IDisposable
         name = System.IO.Path.GetFileName(name);
         foreach (var c in System.IO.Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
         return string.IsNullOrWhiteSpace(name) ? "file" : name;
+    }
+
+    // sanitize a relative folder path from the wire: keep clean segments, drop traversal/drive parts
+    internal static string SafeRel(string rel)
+    {
+        var segs = rel.Split('/', '\\')
+            .Select(s => System.IO.Path.GetFileName(s.Trim()))
+            .Where(s => s.Length > 0 && s != "." && s != "..")
+            .Select(s => { foreach (var c in System.IO.Path.GetInvalidFileNameChars()) s = s.Replace(c, '_'); return s; });
+        return string.Join("/", segs);
     }
 
     static async Task HashPrefixAsync(FileStream file, IncrementalHash hash, long len, CancellationToken ct)

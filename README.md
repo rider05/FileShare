@@ -21,7 +21,7 @@ dotnet build D:\FileShare\FileShare.Win -c Release
 Run: `D:\FileShare\FileShare.Win\bin\Release\net8.0-windows\FileShare.exe`
 (If `dotnet` complains about missing frameworks, set `DOTNET_ROOT=%LOCALAPPDATA%\dotnet-sdk` first, or install the full .NET 8 Desktop runtime.)
 
-Protocol self-test (loopback: clean send + hard-disconnect + auto-resume, hash-verified):
+Protocol self-test (loopback: clean send + hard-disconnect + auto-resume + nested-folder send, hash-verified):
 
 ```
 FileShare.exe --selftest
@@ -44,7 +44,11 @@ Install on a phone: enable "Install unknown apps" for your file manager/browser,
 
 1. Both devices on the same WiFi (router or phone hotspot). Windows firewall prompt on first run → allow on **private networks**.
 2. Each app **auto-detects** the other on every network interface (WiFi, Ethernet, VPN, phone-hotspot subnets — UDP broadcast discovery, port 53515). Blocked? Use **Connect by IP**.
-3. Select a device, pick files, send. Received files: Windows → `Documents\FileShare` (configurable); Android → `Downloads/FileShare` via MediaStore.
+3. Select a device, pick **files or folders**, send.
+   - **Windows:** "Add files…", "Add folder…", or drag files/folders onto the window. A folder arrives on the receiver with its structure intact (`Photos\2026\trip.jpg`).
+   - **Android:** "Pick files", "Folder" (whole folder tree), or **Share → FileShare** from any app (photos, videos, docs, multiple files), then pick a device and hit Send.
+   - Received files: Windows → `Documents\FileShare` (configurable, subfolders created as needed); Android → `Downloads/FileShare/<subfolder>` via MediaStore.
+4. Live progress everywhere: Windows shows a receive strip (device name, file, %, MB/s, ETA) plus an up-speed line for sends; Android shows per-file progress and a foreground notification with % and bytes.
 4. If the connection drops mid-transfer, the sender retries with backoff (up to 6 attempts) and resumes from the receiver's exact byte offset. Cancelled/failed sends resume on re-send; nothing is ever re-downloaded from zero unless the file changed.
 
 ## Ports
@@ -60,4 +64,5 @@ Install on a phone: enable "Install unknown apps" for your file manager/browser,
 - [x] M2 transfer both directions with progress + SHA-256 verify — Windows verified by selftest
 - [x] M3 resume after hard disconnect — Windows verified by selftest (Android shares the identical protocol)
 - [x] M4 50 GB design: 64-bit sizes, 1 MB streaming, <50 MB RAM budget, fsync checkpoints every 64 MB, disk-space errors surfaced, foreground service on Android
+- [x] M6 folders + share-sheet: folder pick/drop on both sides, relative-path protocol (backward compatible), traversal-safe receivers, Android share target and SAF tree walk — Windows verified by selftest
 - [ ] M5 on-device soak test (needs a real phone on the same WiFi; `adb devices` currently shows none connected)

@@ -49,7 +49,11 @@ class TransferService : Service() {
             ACTION_SEND -> {
                 val target = intent.getStringExtra(EXTRA_PEER_IP)
                 val uris = intent.getStringArrayListExtra(EXTRA_URIS)?.map { Uri.parse(it) }
-                if (target != null && uris != null) enqueue(target, uris)
+                val rels = intent.getStringArrayListExtra(EXTRA_RELS)
+                if (target != null && uris != null) {
+                    val picks = uris.mapIndexed { i, u -> PendingPick(u, rels?.getOrNull(i)?.ifEmpty { null }) }
+                    enqueue(target, picks)
+                }
             }
             ACTION_PAUSE -> {
                 paused = true
@@ -74,10 +78,10 @@ class TransferService : Service() {
         return START_STICKY
     }
 
-    private fun enqueue(ip: String, uris: List<Uri>) {
-        val items = uris.mapNotNull { u ->
+    private fun enqueue(ip: String, picks: List<PendingPick>) {
+        val items = picks.mapNotNull { p ->
             runCatching {
-                TransferItem(u, queryName(u), querySize(u))
+                TransferItem(p.uri, queryName(p.uri), querySize(p.uri), p.relPath)
             }.getOrNull()
         }
         if (items.isEmpty()) return
@@ -115,8 +119,8 @@ class TransferService : Service() {
         val pct = if (item.size > 0) ((item.progress * 100) / item.size).coerceIn(0, 99).toInt() else 0
         val n = NotificationCompat.Builder(this, CH)
             .setSmallIcon(android.R.drawable.ic_menu_send)
-            .setContentTitle("Sending ${item.displayName}")
-            .setContentText("$pct% · ${fmtBytes(item.progress)} / ${fmtBytes(item.size)}")
+            .setContentTitle("Sending ${item.label}")
+            .setContentText("$pct%, ${fmtBytes(item.progress)} of ${fmtBytes(item.size)}")
             .setProgress(100, pct, false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -169,6 +173,7 @@ class TransferService : Service() {
         const val ACTION_RESUME = "com.fileshare.app.RESUME"
         const val EXTRA_PEER_IP = "peerIp"
         const val EXTRA_URIS = "uris"
+        const val EXTRA_RELS = "rels"
         const val CH = "fileshare"
         const val NOTIF_ID = 1
 
@@ -177,11 +182,12 @@ class TransferService : Service() {
             Intent(ctx, TransferService::class.java).setAction(ACTION_START),
         )
 
-        fun send(ctx: Context, ip: String, uris: List<Uri>) = ContextCompat.startForegroundService(
+        fun send(ctx: Context, ip: String, picks: List<PendingPick>) = ContextCompat.startForegroundService(
             ctx,
             Intent(ctx, TransferService::class.java).setAction(ACTION_SEND)
                 .putExtra(EXTRA_PEER_IP, ip)
-                .putStringArrayListExtra(EXTRA_URIS, ArrayList(uris.map { it.toString() })),
+                .putStringArrayListExtra(EXTRA_URIS, ArrayList(picks.map { it.uri.toString() }))
+                .putStringArrayListExtra(EXTRA_RELS, ArrayList(picks.map { it.relPath ?: "" })),
         )
 
         fun cancel(ctx: Context) = ctx.startService(

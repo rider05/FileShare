@@ -20,6 +20,11 @@ static class SelfTest
 
         try
         {
+            // 0) rel-path sanitizing (pure logic, no sockets)
+            Check(Receiver.SafeRel("../evil") == "evil", "SafeRel drops traversal");
+            Check(Receiver.SafeRel("a\\b/c") == "a/b/c", "SafeRel keeps nested segments");
+            Check(Receiver.SafeRel("C:/x") == "x", "SafeRel drops drive prefix");
+
             Console.WriteLine("selftest: receiver listening on 127.0.0.1");
             using var receiver = new Receiver(IPAddress.Loopback, recvDir);
             receiver.Start();
@@ -53,6 +58,14 @@ static class SelfTest
             Check(item2.State == TransferState.Done, "resumed transfer completes");
             Check(Sender.Sha256Async(System.IO.Path.Combine(recvDir2, "source.bin"), CancellationToken.None).GetAwaiter().GetResult() == expected, "hash matches after resume");
             Check(!File.Exists(System.IO.Path.Combine(recvDir2, "source.bin.part")), "no partial left behind");
+
+            // 3) nested-folder transfer lands in a matching subfolder
+            var item3 = new TransferItem { Path = src, Size = new FileInfo(src).Length, RelPath = "photos/trip" };
+            Sender.SendAsync(item3, "127.0.0.1", Proto.TcpPort, null, CancellationToken.None).GetAwaiter().GetResult();
+            Check(item3.State == TransferState.Done, "nested folder transfer completes");
+            var gotNested = System.IO.Path.Combine(recvDir, "photos", "trip", "source.bin");
+            Check(File.Exists(gotNested), "nested file landed in subfolder");
+            Check(Sender.Sha256Async(gotNested, CancellationToken.None).GetAwaiter().GetResult() == expected, "nested file hash matches");
 
             Console.WriteLine("SELFTEST PASSED");
             return 0;

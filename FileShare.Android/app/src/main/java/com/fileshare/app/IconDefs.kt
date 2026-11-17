@@ -43,3 +43,24 @@ val DescriptionIcon: ImageVector = ImageVector.Builder(
         moveTo(13f, 9f); verticalLineTo(3.5f); lineTo(18.5f, 9f); horizontalLineTo(13f); close()
     }
 }.build()
+
+val FolderIcon: ImageVector = ImageVector.Builder(
+    name = "FolderIcon",
+    defaultWidth = 24.dp, defaultHeight = 24.dp,
+    viewportWidth = 24f, viewportHeight = 24f,
+).apply {
+    path(fill = SolidColor(Color.Black)) {
+        // M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z
+        moveTo(10f, 4f); horizontalLineTo(4f)
+        curveToRelative(-1.1f, 0f, -1.99f, 0.9f, -1.99f, 2f)
+        lineTo(2f, 18f)
+        curveToRelative(0f, 1.1f, 0.9f, 2f, 2f, 2f)
+        horizontalLineTo(20f)
+        curveToRelative(1.1f, 0f, 2f, -0.9f, 2f, -2f)
+        verticalLineTo(8f)
+        curveToRelative(0f, -1.1f, -0.9f, -2f, -2f, -2f)
+        horizontalLineTo(10f)
+        lineTo(8f, 4f)
+        close()
+    }
+}.build()

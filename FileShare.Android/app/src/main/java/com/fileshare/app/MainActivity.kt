@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -58,7 +59,33 @@ class MainActivity : ComponentActivity() {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
         TransferService.start(this)
+        handleShareIntent(intent)
         setContent { App() }
+    }
+
+    // ShareIt-style: "Share > FileShare" stages files here; the user then picks a device and hits Send.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleShareIntent(intent)
+    }
+
+    private fun handleShareIntent(intent: Intent?) {
+        val streams: List<Uri> = when (intent?.action) {
+            Intent.ACTION_SEND ->
+                listOfNotNull(
+                    if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                    else @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri,
+                )
+            Intent.ACTION_SEND_MULTIPLE ->
+                (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                else @Suppress("DEPRECATION") intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM))
+                    ?: emptyList()
+            else -> return
+        }
+        if (streams.isNotEmpty()) {
+            Repo.pendingUris.value = Repo.pendingUris.value + streams.map { PendingPick(it, null) }
+            Toast.makeText(this, "${streams.size} file(s) ready, pick a device and send", Toast.LENGTH_SHORT).show()
+        }
     }
 }
 
@@ -101,6 +128,43 @@ fun openFile(ctx: Context, uri: Uri) {
     }
 }
 
+// Recursively walk a SAF document tree; files come back with their folder path ("Camera/2026/x.jpg").
+fun walkTree(ctx: Context, treeUri: Uri): List<PendingPick> {
+    val picks = mutableListOf<PendingPick>()
+    runCatching { ctx.contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+    val resolver = ctx.contentResolver
+    val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
+    val rootName = runCatching {
+        resolver.query(
+            DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocId),
+            arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null,
+        )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+    }.getOrNull() ?: "folder"
+
+    fun walk(docId: String, prefix: String) {
+        val rows = runCatching {
+            resolver.query(
+                DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId),
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                ), null, null, null,
+            )?.use { c ->
+                buildList {
+                    while (c.moveToNext()) add(Triple(c.getString(0), c.getString(1), c.getString(2)))
+                }
+            }
+        }.getOrNull() ?: emptyList()
+        for ((id, name, mime) in rows.sortedBy { it.second }) {
+            if (mime == DocumentsContract.Document.MIME_TYPE_DIR) walk(id, "$prefix/$name")
+            else picks.add(PendingPick(DocumentsContract.buildDocumentUriUsingTree(treeUri, id), prefix))
+        }
+    }
+    walk(rootDocId, rootName)
+    return picks
+}
+
 @Composable
 fun App() {
     MaterialTheme {
@@ -112,7 +176,10 @@ fun App() {
         var selectedIp by remember { mutableStateOf<String?>(null) }
         var ip by remember { mutableStateOf("") }
         val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
-            Repo.pendingUris.value = it
+            Repo.pendingUris.value = Repo.pendingUris.value + it.map { u -> PendingPick(u, null) }
+        }
+        val pickTree = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { root ->
+            if (root != null) Repo.pendingUris.value = Repo.pendingUris.value + walkTree(ctx, root)
         }
 
         Column(
@@ -172,12 +239,17 @@ fun App() {
                     Spacer(Modifier.width(8.dp))
                     Text("Pick files")
                 }
+                OutlinedButton(onClick = { pickTree.launch(null) }) {
+                    Icon(FolderIcon, contentDescription = null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Folder")
+                }
                 Button(
                     enabled = selectedIp != null && pending.isNotEmpty(),
                     onClick = {
                         val target = selectedIp
-                        val uris = pending
-                        if (target != null && uris.isNotEmpty()) TransferService.send(ctx, target, uris)
+                        val picks = pending
+                        if (target != null && picks.isNotEmpty()) TransferService.send(ctx, target, picks)
                     },
                 ) {
                     Icon(Icons.Filled.Send, contentDescription = null, Modifier.size(18.dp))
@@ -192,7 +264,7 @@ fun App() {
                     Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                "${t.displayName}, ${t.state.label()}",
+                                "${t.label}, ${t.state.label()}",
                                 Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodyMedium,
                             )

@@ -27,12 +27,13 @@ Peers listen on all interfaces, prune after 6s; adapter/hotspot changes are pick
 
 **Transfer (TCP 53516), one connection per file:**
 ```
-sender → receiver: {"v":2,"name":"movie.mkv","size":53687091200,"sha256":"..."}\n
+sender → receiver: {"v":2,"name":"movie.mkv","size":53687091200,"sha256":"...","path":"Vacation/Day1"}\n
 receiver → sender: {"resume":12345678900}\n      ← bytes it already has (0 if fresh)
 sender → receiver: <file bytes from that offset, 1 MB chunks>
 receiver → sender: every 8 MB: {"ack":<cumulative_bytes>}\n
 on completion:    {"ok":true}  |  {"ok":false,"reason":"hash"}\n
 ```
+`path` is **optional** (v2-compatible): `/`-separated relative folder path inside a transferred folder. Absent/null = flat file at the receive root. Receivers sanitize each segment (drop `.`, `..`, drive markers, invalid chars), verify the canonical result stays inside the receive folder, create matching subfolders, and keep `.part`/`.meta` there. Same-named files in different subfolders transfer concurrently (per-file lock key is folder+name). Windows: drag/drop or "Add folder…" queues whole folders; Android: "Folder" picker (SAF tree walk) and a share-sheet target ("Share > FileShare" via SEND/SEND_MULTIPLE) stage files for sending. Android publishes received files to `Download/FileShare/<subfolder>` (MediaStore, API 29+), else its app folder.
 
 **Resume mechanics:**
 - Partial file stored as `name.part` + sidecar `name.part.meta` (`{"size":N,"sha256":"...","done":N}`).

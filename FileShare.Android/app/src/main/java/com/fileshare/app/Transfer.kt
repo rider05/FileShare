@@ -38,11 +38,12 @@ object Tx {
 
 enum class TState { PENDING, HASHING, CONNECTING, SENDING, RECONNECTING, PAUSED, DONE, FAILED, CANCELLED }
 
-class TransferItem(val uri: Uri, val displayName: String, val size: Long) {
+class TransferItem(val uri: Uri, val displayName: String, val size: Long, val relPath: String? = null) {
     @Volatile var state = TState.PENDING
     @Volatile var progress = 0L
     @Volatile var sha: String? = null
     @Volatile var error: String? = null
+    val label: String get() = if (relPath != null) "$relPath/$displayName" else displayName
 }
 
 class HashMismatchException : IOException("hash mismatch")
@@ -98,15 +99,13 @@ object Sender {
                         s.connect(InetSocketAddress(host, port), 10_000)
                         val out = s.getOutputStream()
                         val input = BufferedInputStream(s.getInputStream(), 65536)
-                        writeLine(
-                            out,
-                            JSONObject()
-                                .put("v", 2)
-                                .put("name", item.displayName)
-                                .put("size", item.size)
-                                .put("sha", item.sha)
-                                .toString(),
-                        )
+                        val headerJson = JSONObject()
+                            .put("v", 2)
+                            .put("name", item.displayName)
+                            .put("size", item.size)
+                            .put("sha", item.sha)
+                        if (item.relPath != null) headerJson.put("path", item.relPath)
+                        writeLine(out, headerJson.toString())
                         val resume = JSONObject(readLine(input)).optLong("resume", -1)
                         if (resume < 0) throw IOException("receiver busy with this file")
                         if (resume > item.size) throw IOException("receiver ahead of sender")
@@ -197,6 +196,14 @@ class Receiver(private val ctx: Context, private val onReceived: (String, Uri?) 
 
     private fun receiveDir(): File = File(ctx.getExternalFilesDir(null), "FileShare").apply { mkdirs() }
 
+    // sanitize a relative folder path from the wire: keep clean segments, drop traversal/drive parts
+    private fun safeRel(rel: String): String =
+        rel.split('/', '\\')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && it != "." && it != ".." && !it.endsWith(":") }
+            .map { s -> "\\/:*?\"<>|".fold(s) { acc, c -> acc.replace(c, '_') } }
+            .joinToString("/")
+
     private fun handle(client: Socket) {
         try {
             client.soTimeout = 30_000
@@ -211,13 +218,20 @@ class Receiver(private val ctx: Context, private val onReceived: (String, Uri?) 
                     .substringAfterLast('/')
                     .substringAfterLast('\\')
                 for (c in "\\/:*?\"<>|") name = name.replace(c, '_')
+                val rel = safeRel(header.optString("path"))
                 if (size < 0) return
 
-                val dir = receiveDir()
+                // files from a transferred folder land in a matching subfolder; guard the canonical result
+                val root = receiveDir().canonicalFile
+                val dir = if (rel.isEmpty()) root
+                else File(root, rel.replace('/', File.separatorChar)).canonicalFile
+                    .takeIf { it.path.startsWith(root.path + File.separator) }
+                    ?: root
+                dir.mkdirs()
                 val part = File(dir, "$name.part")
                 val meta = File(dir, "$name.part.meta")
 
-                val gate = locks.getOrPut(name.lowercase()) { Any() }
+                val gate = locks.getOrPut((if (rel.isEmpty()) "" else "$rel/") + name.lowercase()) { Any() }
                 synchronized(gate) {
                     var resume = 0L
                     if (part.exists() && meta.exists()) {
@@ -283,7 +297,7 @@ class Receiver(private val ctx: Context, private val onReceived: (String, Uri?) 
                         return
                     }
 
-                    val published = publish(part, name)
+                    val published = publish(part, name, rel)
                     if (published != null) {
                         part.delete()
                         meta.delete()
@@ -292,7 +306,7 @@ class Receiver(private val ctx: Context, private val onReceived: (String, Uri?) 
                         meta.delete()
                     }
                     writeLine(out, JSONObject().put("ok", true).toString())
-                    onReceived(name, published)
+                    onReceived(if (rel.isEmpty()) name else "$rel/$name", published)
                 }
             }
         } catch (e: Exception) {
@@ -307,13 +321,15 @@ class Receiver(private val ctx: Context, private val onReceived: (String, Uri?) 
         tmp.renameTo(meta)
     }
 
-    // Move into the user-visible Downloads collection; null → keep in the app folder.
-    private fun publish(part: File, name: String): Uri? {
+    // Move into the user-visible Downloads collection, under FileShare/<subfolder>; null → keep in the app folder.
+    private fun publish(part: File, name: String, rel: String): Uri? {
         if (Build.VERSION.SDK_INT < 29) return null
         return try {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
                 put(MediaStore.MediaColumns.MIME_TYPE, mimeOf(name))
+                put(MediaStore.MediaColumns.RELATIVE_PATH,
+                    if (rel.isEmpty()) "Download/FileShare" else "Download/FileShare/$rel")
             }
             val uri = ctx.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
             ctx.contentResolver.openOutputStream(uri)!!.use { o -> part.inputStream().use { it.copyTo(o, Tx.chunk) } }
