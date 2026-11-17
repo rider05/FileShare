@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#FEF7FF">
+<title>FileShare</title>
+<style>
+  /* Material 3 baseline light, same tokens the mockup shows:
+     primary #6750A4, surface #FEF7FF, surfaceVariant #E7E0EC, primaryContainer #EADDFF. */
+  :root {
+    --bg:#FEF7FF; --on:#1D1B20; --dim:#49454F; --pri:#6750A4;
+    --sv:#E7E0EC; --pc:#EADDFF; --out:#79747E; --track:#E6E0E9;
+    --ok:#146C2E; --bad:#B3261E; --hold:#8A5A00; --warn:#7A5900;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; -webkit-text-size-adjust:100%; }
+  html, body { margin:0; background:var(--bg); color:var(--on);
+    font-family:Roboto,"Segoe UI",system-ui,sans-serif; }
+  .wrap { padding:18px 16px 30px; max-width:520px; margin:0 auto; }
+  h1 { font-size:26px; font-weight:400; margin:10px 0 4px; }
+  .sub { font-size:12.5px; color:var(--dim); margin:0 0 14px; }
+  .empty { font-size:13px; color:var(--dim); padding:8px 2px; }
+  .dcard { background:var(--sv); border-radius:12px; padding:11px 14px; margin-bottom:8px; cursor:pointer; }
+  .dcard.sel { background:var(--pc); }
+  .dcard .nm { font-size:15px; font-weight:600; }
+  .dcard .ip { font-size:12px; color:var(--dim); margin-top:2px; }
+  .iprow { display:flex; gap:8px; align-items:flex-end; margin:14px 0 2px; }
+  .iprow .stack { flex:1; }
+  .iprow small { display:block; font-size:11px; color:var(--dim); margin-bottom:4px; }
+  .iprow input { width:100%; font:inherit; font-size:13.5px; color:var(--on);
+    background:transparent; border:1px solid var(--out); border-radius:6px; padding:10px 12px; outline:none; }
+  .iprow input:focus { border-color:var(--pri); border-width:2px; padding:9px 11px; }
+  .tbtn { background:none; border:0; font:inherit; font-size:14px; font-weight:500;
+    color:var(--pri); padding:8px 6px; cursor:pointer; flex:none; }
+  .acts .tbtn { padding:4px; font-size:13px; }
+  .mbtns { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+  .pill { font:inherit; font-size:13.5px; font-weight:500; height:38px; padding:0 16px;
+    border-radius:999px; border:1px solid var(--out); background:transparent;
+    color:var(--pri); cursor:pointer; display:inline-flex; align-items:center; }
+  .pill.fill { background:var(--pri); border-color:var(--pri); color:#fff; }
+  .dis { opacity:.38; pointer-events:none; }
+  .sect { font-size:15px; font-weight:600; margin:20px 0 4px; }
+  .trow { padding:6px 0 10px; }
+  .tr1 { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13.5px; }
+  .lbl { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .acts { display:flex; gap:2px; flex:none; }
+  .mtrack { height:4px; border-radius:2px; background:var(--track); margin:6px 0 5px; overflow:hidden; }
+  .mfill { height:100%; background:var(--pri); border-radius:2px; }
+  .mfill.hold { background:#625B71; }
+  .tr2 { font-size:11.5px; color:var(--dim); }
+  .st-act { color:var(--pri); font-weight:500; }
+  .st-ok { color:var(--ok); font-weight:500; }
+  .st-bad { color:var(--bad); font-weight:500; }
+  .st-hold { color:var(--hold); font-weight:500; }
+  .st-warn { color:var(--warn); font-weight:500; }
+  .st-dim { color:var(--dim); font-weight:500; }
+  .rrow { display:flex; justify-content:space-between; align-items:center; gap:8px;
+    padding:6px 0; font-size:13.5px; }
+  .share { display:flex; gap:8px; margin-top:18px; padding:10px 12px; border-radius:12px;
+    background:var(--sv); font-size:12px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>FileShare</h1>
+  <p class="sub" id="sub">Looking for devices on this WiFi...</p>
+
+  <div id="devs"><div class="empty">No devices found yet. You can connect by IP below.</div></div>
+
+  <div class="iprow">
+    <span class="stack">
+      <small>Connect by IP (if discovery is blocked)</small>
+      <input id="ipin" inputmode="decimal" autocomplete="off" placeholder="192.168.1.77">
+    </span>
+    <button class="tbtn" data-act="addip">Add</button>
+  </div>
+
+  <div class="mbtns">
+    <label class="pill" for="fp" role="button">Pick files</label>
+    <button class="pill" data-act="folder">Folder</button>
+    <button class="pill fill dis" id="sendbtn" data-act="send">Send 0 file(s)</button>
+  </div>
+
+  <div class="sect">Transfers</div>
+  <div id="tlist"><div class="empty">Nothing sending yet. Pick files, select a device, send.</div></div>
+
+  <div class="sect">Received</div>
+  <div id="rlist"><div class="empty">Files sent to this phone appear here.</div></div>
+
+  <div class="share">Files can also arrive here from any app via Share, then pick a device and send.</div>
+</div>
+
+<input type="file" id="fp" multiple style="display:none">
+
+<script>
+var WORDS = {
+  PENDING:"queued", HASHING:"hashing", CONNECTING:"connecting", SENDING:"sending",
+  RECONNECTING:"reconnecting", PAUSED:"paused", DONE:"done", FAILED:"failed", CANCELLED:"cancelled"
+};
+var CLS = {
+  PENDING:"st-dim", HASHING:"st-act", CONNECTING:"st-act", SENDING:"st-act",
+  RECONNECTING:"st-warn", PAUSED:"st-hold", DONE:"st-ok", FAILED:"st-bad", CANCELLED:"st-warn"
+};
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function(c) {
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+
+function fmt(b) {
+  var u = ["B","KB","MB","GB","TB"], i = 0, v = b;
+  while (v >= 1024 && i < 4) { v /= 1024; i++; }
+  return (i ? v.toFixed(v >= 100 ? 0 : 1) : v) + " " + u[i];
+}
+
+// Full state in, full page sections out; state names are colored words, never glyph symbols.
+function render(s) {
+  document.getElementById("sub").textContent =
+    s.peers.length === 0 ? "Looking for devices on this WiFi..."
+    : s.peers.length + " device(s) on this WiFi. Tap one to select.";
+
+  document.getElementById("devs").innerHTML = s.peers.length === 0
+    ? '<div class="empty">No devices found yet. You can connect by IP below.</div>'
+    : s.peers.map(function(p) {
+        return '<div class="dcard' + (p.ip === s.selected ? ' sel' : '') + '" data-act="dev" data-ip="' + esc(p.ip) + '">'
+          + '<div class="nm">' + esc(p.name) + ' (' + esc(p.platform) + ')</div>'
+          + '<div class="ip">' + esc(p.ip) + '</div></div>';
+      }).join("");
+
+  var sb = document.getElementById("sendbtn");
+  var on = s.selected !== null && s.pending > 0;
+  sb.className = "pill fill" + (on ? "" : " dis");
+  sb.textContent = "Send " + s.pending + " file(s)";
+
+  document.getElementById("tlist").innerHTML = s.transfers.length === 0
+    ? '<div class="empty">Nothing sending yet. Pick files, select a device, send.</div>'
+    : s.transfers.map(function(t) {
+        var pct = t.size > 0 ? Math.min(100, t.progress / t.size * 100) : 0;
+        var acts = "";
+        if (t.active) acts = '<button class="tbtn" data-act="pause">Pause</button><button class="tbtn" data-act="cancel">Cancel</button>';
+        else if (t.state === "PAUSED" || t.state === "PENDING") acts = '<button class="tbtn" data-act="resume">Resume</button>';
+        var err = t.error ? " (" + esc(t.error) + ")" : "";
+        return '<div class="trow">'
+          + '<div class="tr1"><span class="lbl">' + esc(t.label) + '</span><span class="acts">' + acts + '</span></div>'
+          + '<div class="mtrack"><div class="mfill' + (t.state === "PAUSED" ? " hold" : "") + '" style="width:' + pct.toFixed(1) + '%"></div></div>'
+          + '<div class="tr2"><span class="' + (CLS[t.state] || "st-dim") + '">' + (WORDS[t.state] || t.state) + '</span>, '
+          + fmt(t.progress) + ' of ' + fmt(t.size) + err + '</div></div>';
+      }).join("");
+
+  document.getElementById("rlist").innerHTML = s.received.length === 0
+    ? '<div class="empty">Files sent to this phone appear here.</div>'
+    : s.received.map(function(f) {
+        return '<div class="rrow"><span class="lbl">' + esc(f.name) + '</span>'
+          + (f.open ? '<button class="tbtn" data-act="open" data-at="' + f.at + '">Open</button>' : "")
+          + '</div>';
+      }).join("");
+}
+
+document.addEventListener("click", function(e) {
+  var t = e.target.closest("[data-act]");
+  if (!t) return;
+  var a = t.getAttribute("data-act");
+  if (a === "dev") Android.selectDevice(t.getAttribute("data-ip"));
+  else if (a === "addip") { var i = document.getElementById("ipin"); Android.addIp(i.value); i.value = ""; }
+  else if (a === "folder") Android.pickFolder();
+  else if (a === "send") Android.send();
+  else if (a === "pause") Android.pause();
+  else if (a === "resume") Android.resume();
+  else if (a === "cancel") Android.cancel();
+  else if (a === "open") Android.openReceived(parseFloat(t.getAttribute("data-at")));
+});
+</script>
+</body>
+</html>

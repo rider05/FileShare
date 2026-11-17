@@ -6,7 +6,7 @@ Windows ↔ Android file transfer over local WiFi. No cloud, no accounts. Single
 
 ```
 FileShare.Win/       Windows app (.NET 8, WinForms, single exe)
-FileShare.Android/   Android app (Kotlin, Compose, Gradle 9.3.1 + AGP 9.1)
+FileShare.Android/   Android app (Kotlin, WebView + HTML UI in app/src/main/assets/app.html, JS bridge, Gradle 9.3.1 + AGP 9.1)
 plan.md              architecture + protocol spec
 ```
 

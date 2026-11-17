@@ -1,57 +1,46 @@
 package com.fileshare.app
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.DocumentsContract
+import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 
+// The whole UI is assets/app.html rendered in a WebView; this activity is the bridge:
+// JS calls Android.* for actions, Kotlin pushes full state as JSON into render(state).
 class MainActivity : ComponentActivity() {
+    private val main = Handler(Looper.getMainLooper())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var selectedIp: String? = null
+    private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private lateinit var webView: WebView
+
+    private val pickTree = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { root ->
+        if (root != null) Repo.pendingUris.value = Repo.pendingUris.value + walkTree(this, root)
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 33) {
@@ -59,8 +48,115 @@ class MainActivity : ComponentActivity() {
         }
         TransferService.start(this)
         handleShareIntent(intent)
-        setContent { App() }
+
+        webView = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.allowFileAccess = true
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+            addJavascriptInterface(Bridge(), "Android")
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView, url: String?) = pushNow()
+            }
+            webChromeClient = object : WebChromeClient() {
+                // <input type="file" multiple> in the page becomes a document picker; URIs are staged directly.
+                override fun onShowFileChooser(v: WebView, cb: ValueCallback<Array<Uri>>, p: FileChooserParams): Boolean {
+                    fileCallback?.onReceiveValue(null)
+                    fileCallback = cb
+                    return try {
+                        startActivityForResult(p.createIntent().apply { putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true) }, REQ_FILES)
+                        true
+                    } catch (e: Exception) {
+                        fileCallback = null
+                        false
+                    }
+                }
+            }
+            loadUrl("file:///android_asset/app.html")
+        }
+        setContentView(webView)
+
+        // any Repo change re-renders the page
+        listOf(Repo.peers, Repo.transfers, Repo.received, Repo.pendingUris).forEach { f ->
+            scope.launch { f.collect { pushNow() } }
+        }
     }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_FILES) return
+        val uris = mutableListOf<Uri>()
+        data?.clipData?.let { cd -> for (i in 0 until cd.itemCount) uris += cd.getItemAt(i).uri }
+            ?: data?.data?.let { uris += it }
+        if (uris.isNotEmpty()) Repo.pendingUris.value = Repo.pendingUris.value + uris.map { PendingPick(it, null) }
+        fileCallback?.onReceiveValue(null) // URIs were staged directly; cancel the web-side pick
+        fileCallback = null
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
+        webView.destroy()
+    }
+
+    private fun pushNow() {
+        if (!::webView.isInitialized) return
+        val s = JSONObject()
+            .put("selected", selectedIp ?: JSONObject.NULL)
+            .put("peers", JSONArray().apply {
+                Repo.peers.value.forEach { p ->
+                    put(JSONObject().put("name", p.name).put("platform", p.platform).put("ip", p.ip))
+                }
+            })
+            .put("pending", Repo.pendingUris.value.size)
+            .put("transfers", JSONArray().apply {
+                Repo.transfers.value.forEach { t ->
+                    put(
+                        JSONObject()
+                            .put("label", t.label)
+                            .put("state", t.state.name)
+                            .put("progress", t.progress)
+                            .put("size", t.size)
+                            .put("error", t.error ?: JSONObject.NULL)
+                            .put("active", t.state in activeStates),
+                    )
+                }
+            })
+            .put("received", JSONArray().apply {
+                Repo.received.value.forEach { f ->
+                    put(JSONObject().put("name", f.name).put("at", f.at).put("open", f.uri != null))
+                }
+            })
+        webView.evaluateJavascript("render($s)", null)
+    }
+
+    private inner class Bridge {
+        @JavascriptInterface fun selectDevice(ip: String) = post { selectedIp = ip; pushNow() }
+        @JavascriptInterface fun addIp(ip: String) = post {
+            val t = ip.trim()
+            if (t.isNotEmpty()) {
+                Repo.manualPeers.value = Repo.manualPeers.value +
+                    Peer(name = "manual $t", platform = "manual", ip = t, tcp = Discovery.TCP_PORT)
+                Repo.setDiscovered(Discovery.snapshot())
+                selectedIp = t
+                pushNow()
+            }
+        }
+        @JavascriptInterface fun pickFolder() = post { pickTree.launch(null) }
+        @JavascriptInterface fun send() = post {
+            val target = selectedIp
+            val picks = Repo.pendingUris.value
+            if (target != null && picks.isNotEmpty()) TransferService.send(this@MainActivity, target, picks)
+        }
+        @JavascriptInterface fun pause() = post { TransferService.pause(this@MainActivity) }
+        @JavascriptInterface fun resume() = post { TransferService.resume(this@MainActivity) }
+        @JavascriptInterface fun cancel() = post { TransferService.cancel(this@MainActivity) }
+        @JavascriptInterface fun openReceived(at: Long) = post {
+            Repo.received.value.firstOrNull { it.at == at }?.uri?.let { openFile(this@MainActivity, it) }
+        }
+    }
+
+    private fun post(body: () -> Unit) = main.post(body)
 
     // ShareIt-style: "Share > FileShare" stages files here; the user then picks a device and hits Send.
     override fun onNewIntent(intent: Intent) {
@@ -86,21 +182,13 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "${streams.size} file(s) ready, pick a device and send", Toast.LENGTH_SHORT).show()
         }
     }
+
+    private companion object {
+        const val REQ_FILES = 42
+    }
 }
 
 private val activeStates = setOf(TState.SENDING, TState.CONNECTING, TState.RECONNECTING, TState.HASHING)
-
-private fun TState.label(): String = when (this) {
-    TState.PENDING -> "queued"
-    TState.HASHING -> "hashing…"
-    TState.CONNECTING -> "connecting…"
-    TState.SENDING -> "sending"
-    TState.RECONNECTING -> "reconnecting, will resume"
-    TState.PAUSED -> "paused"
-    TState.DONE -> "done"
-    TState.FAILED -> "failed"
-    TState.CANCELLED -> "cancelled, will resume"
-}
 
 fun fmtBytes(b: Long): String {
     val v = b.toDouble()
@@ -162,158 +250,4 @@ fun walkTree(ctx: Context, treeUri: Uri): List<PendingPick> {
     }
     walk(rootDocId, rootName)
     return picks
-}
-
-@Composable
-fun App() {
-    MaterialTheme {
-        val ctx = LocalContext.current
-        val peers by Repo.peers.collectAsState()
-        val transfers by Repo.transfers.collectAsState()
-        val received by Repo.received.collectAsState()
-        val pending by Repo.pendingUris.collectAsState()
-        var selectedIp by remember { mutableStateOf<String?>(null) }
-        var ip by remember { mutableStateOf("") }
-        val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
-            Repo.pendingUris.value = Repo.pendingUris.value + it.map { u -> PendingPick(u, null) }
-        }
-        val pickTree = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { root ->
-            if (root != null) Repo.pendingUris.value = Repo.pendingUris.value + walkTree(ctx, root)
-        }
-
-        // one scrollable list; sections are items so nothing clips or overlaps on small screens
-        LazyColumn(
-            Modifier.fillMaxSize().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item {
-                Text("FileShare", style = MaterialTheme.typography.headlineMedium)
-                Text(
-                    if (peers.isEmpty()) "Looking for devices on this WiFi…" else "${peers.size} device(s) on this WiFi. Tap one to select.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            items(peers, key = { it.ip }) { p ->
-                Card(
-                    onClick = { selectedIp = p.ip },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (p.ip == selectedIp) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                    ),
-                ) {
-                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                        Text("${p.name}  (${p.platform})", style = MaterialTheme.typography.titleMedium)
-                        Text(p.ip, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = ip,
-                        onValueChange = { ip = it },
-                        Modifier.weight(1f),
-                        label = { Text("Connect by IP (if discovery is blocked)") },
-                        singleLine = true,
-                    )
-                    TextButton(onClick = {
-                        val t = ip.trim()
-                        if (t.isNotEmpty()) {
-                            Repo.manualPeers.value = Repo.manualPeers.value +
-                                Peer(name = "manual $t", platform = "manual", ip = t, tcp = Discovery.TCP_PORT)
-                            Repo.setDiscovered(Discovery.snapshot())
-                            selectedIp = t
-                        }
-                    }) {
-                        Icon(Icons.Filled.Add, contentDescription = null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Add")
-                    }
-                }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { pick.launch(arrayOf("*/*")) }) {
-                        Icon(DescriptionIcon, contentDescription = null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Pick files")
-                    }
-                    OutlinedButton(onClick = { pickTree.launch(null) }) {
-                        Icon(FolderIcon, contentDescription = null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Folder")
-                    }
-                    Button(
-                        enabled = selectedIp != null && pending.isNotEmpty(),
-                        onClick = {
-                            val target = selectedIp
-                            val picks = pending
-                            if (target != null && picks.isNotEmpty()) TransferService.send(ctx, target, picks)
-                        },
-                    ) {
-                        Icon(Icons.Filled.Send, contentDescription = null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Send ${pending.size} file(s)")
-                    }
-                }
-            }
-            item { Text("Transfers", style = MaterialTheme.typography.titleMedium) }
-            items(transfers, key = { it.uri }) { t ->
-                Column(Modifier.fillMaxWidth()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "${t.label}, ${t.state.label()}",
-                            Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        if (t.state in activeStates) {
-                            TextButton(onClick = { TransferService.pause(ctx) }) {
-                                Icon(PauseIcon, contentDescription = null, Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Pause")
-                            }
-                            TextButton(onClick = { TransferService.cancel(ctx) }) {
-                                Icon(Icons.Filled.Close, contentDescription = null, Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Cancel")
-                            }
-                        } else if (t.state == TState.PAUSED || t.state == TState.PENDING) {
-                            TextButton(onClick = { TransferService.resume(ctx) }) {
-                                Icon(Icons.Filled.PlayArrow, contentDescription = null, Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Resume")
-                            }
-                        }
-                    }
-                    LinearProgressIndicator(
-                        progress = {
-                            if (t.size > 0) (t.progress.toFloat() / t.size).coerceIn(0f, 1f) else 0f
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Text(
-                        "${fmtBytes(t.progress)} of ${fmtBytes(t.size)}" + (t.error?.let { "  ($it)" } ?: ""),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-            item { Text("Received", style = MaterialTheme.typography.titleMedium) }
-            items(received, key = { it.at }) { f ->
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(f.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    if (f.uri != null) {
-                        TextButton(onClick = { openFile(ctx, f.uri) }) {
-                            Icon(Icons.Filled.ExitToApp, contentDescription = null, Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Open")
-                        }
-                    }
-                }
-            }
-        }
-    }
 }

@@ -16,7 +16,7 @@ So: no per-chunk bitmaps, no parallel streams — TCP guarantees ordering, and o
 | Side | Tech | Why |
 |---|---|---|
 | Windows | C# / .NET 8, WinForms | Single small .exe, async I/O, trivial UI |
-| Android | Kotlin + Jetpack Compose | Native, one screen |
+| Android | Kotlin + WebView (HTML UI, assets/app.html) | JS bridge to the transfer service, no UI framework |
 | Protocol | Raw TCP + JSON header | Same spec both sides |
 
 ## Protocol v2 (resume + cumulative acks)
