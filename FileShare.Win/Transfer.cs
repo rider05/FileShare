@@ -1,0 +1,340 @@
+using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text.Json;
+
+namespace FileShare.Win;
+
+sealed class HashMismatchException : IOException
+{
+    public HashMismatchException() : base("receiver reported corruption") { }
+}
+
+// Tunables are internal static so SelfTest can shrink them for fast resume testing.
+static class Tx
+{
+    internal static long CheckpointEvery = 64L << 20; // 64 MB fsync + meta checkpoint
+    internal static long AckEvery = 8L << 20;         // 8 MB cumulative ack
+    internal const int ChunkSize = 1 << 20;           // 1 MB streaming buffer
+    internal const int MaxAttempts = 6;
+}
+
+enum TransferState { Pending, Hashing, Connecting, Sending, Reconnecting, Paused, Done, Failed, Cancelled }
+
+class TransferItem
+{
+    public string Path = "";
+    public string Name => System.IO.Path.GetFileName(Path);
+    public long Size;
+    public string Sha = "";
+    public TransferState State = TransferState.Pending;
+    public long Progress;      // bytes the receiver has (resume-aware)
+    public long SpeedBps;
+    public string Error = "";
+    internal long LastProgress;
+    internal DateTime LastTick = DateTime.UtcNow;
+}
+
+static class Sender
+{
+    public static async Task<string> Sha256Async(string path, CancellationToken ct)
+    {
+        await using var f = new FileStream(path, FileMode.Open, FileAccess.Read, System.IO.FileShare.Read, Tx.ChunkSize, useAsync: true);
+        var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buf = new byte[Tx.ChunkSize];
+        int n;
+        while ((n = await f.ReadAsync(buf, ct)) > 0) hash.AppendData(buf, 0, n);
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+    }
+
+    // Retries with backoff; every reconnect re-sends the header and the receiver's resume offset wins.
+    public static async Task SendAsync(TransferItem item, string host, int port,
+        Action<TransferItem>? onTick, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(item.Sha))
+        {
+            item.State = TransferState.Hashing;
+            onTick?.Invoke(item);
+            item.Sha = await Sha256Async(item.Path, ct); // pre-pass hash; cached for resumes/re-sends
+        }
+
+        Exception? last = null;
+        for (int attempt = 1; attempt <= Tx.MaxAttempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                item.State = attempt == 1 ? TransferState.Connecting : TransferState.Reconnecting;
+                onTick?.Invoke(item);
+
+                using var client = new TcpClient { SendTimeout = 30_000, ReceiveTimeout = 30_000 };
+                await client.ConnectAsync(host, port, ct);
+                await using var stream = client.GetStream();
+
+                await Proto.WriteJsonAsync(stream, new { v = 2, name = item.Name, size = item.Size, sha = item.Sha }, ct);
+                using var resumeDoc = JsonDocument.Parse(await Proto.ReadLineAsync(stream, ct));
+                long resume = resumeDoc.RootElement.TryGetProperty("resume", out var r) ? r.GetInt64() : 0;
+                if (resume < 0) throw new IOException("receiver busy with this file");
+                if (resume > item.Size) throw new IOException("receiver ahead of sender");
+
+                item.State = TransferState.Sending;
+                item.Progress = resume;
+                onTick?.Invoke(item);
+
+                await using var file = new FileStream(item.Path, FileMode.Open, FileAccess.Read, System.IO.FileShare.Read, Tx.ChunkSize, useAsync: true);
+                file.Seek(resume, SeekOrigin.Begin);
+                var buf = new byte[Tx.ChunkSize];
+                long sent = resume;
+                int n;
+                while ((n = await file.ReadAsync(buf, ct)) > 0)
+                {
+                    await stream.WriteAsync(buf.AsMemory(0, n), ct);
+                    sent += n;
+                    item.Progress = sent;
+                    onTick?.Invoke(item);
+                }
+
+                // drain replies; 8 MB acks interleave with the final ok/false
+                while (true)
+                {
+                    var line = await Proto.ReadLineAsync(stream, ct);
+                    if (line.Contains("\"ok\""))
+                    {
+                        using var okDoc = JsonDocument.Parse(line);
+                        if (!okDoc.RootElement.GetProperty("ok").GetBoolean())
+                            throw new HashMismatchException();
+                        break;
+                    }
+                }
+
+                item.State = TransferState.Done;
+                item.Progress = item.Size;
+                onTick?.Invoke(item);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                item.State = TransferState.Cancelled;
+                onTick?.Invoke(item);
+                throw;
+            }
+            catch (HashMismatchException)
+            {
+                item.State = TransferState.Failed;
+                item.Error = "corrupted — resending will start over";
+                onTick?.Invoke(item);
+                throw;
+            }
+            catch (Exception ex) when (ex is SocketException or IOException)
+            {
+                last = ex;
+                item.Error = ex.Message;
+                if (attempt < Tx.MaxAttempts)
+                {
+                    item.State = TransferState.Reconnecting;
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, 1 << attempt - 1)), ct);
+                }
+            }
+        }
+        item.State = TransferState.Failed;
+        onTick?.Invoke(item);
+        throw last!;
+    }
+}
+
+sealed class Receiver : IDisposable
+{
+    readonly string _dir;
+    readonly TcpListener _listener;
+    readonly CancellationTokenSource _cts = new();
+    static readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new();
+    public event Action<string>? Received;
+
+    // test hook: offset the last resumed transfer started from
+    public long LastResumeOffset { get; private set; }
+
+    public Receiver(IPAddress? bind, string dir, int port = Proto.TcpPort)
+    {
+        _dir = dir;
+        _listener = new TcpListener(bind ?? IPAddress.Any, port);
+        _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+    }
+
+    public void Start()
+    {
+        _listener.Start();
+        _ = AcceptLoop();
+    }
+
+    async Task AcceptLoop()
+    {
+        while (!_cts.IsCancellationRequested)
+        {
+            TcpClient client;
+            try { client = await _listener.AcceptTcpClientAsync(_cts.Token); }
+            catch { break; }
+            _ = Task.Run(() => Handle(client, _cts.Token));
+        }
+    }
+
+    async Task Handle(TcpClient client, CancellationToken ct)
+    {
+        try
+        {
+            using (client)
+            {
+                client.ReceiveTimeout = 30_000;
+                client.SendTimeout = 30_000;
+                var stream = client.GetStream();
+
+                using var header = JsonDocument.Parse(await Proto.ReadLineAsync(stream, ct));
+                var root = header.RootElement;
+                long size = root.GetProperty("size").GetInt64();
+                string sha = root.GetProperty("sha").GetString() ?? "";
+                string name = Sanitize(root.GetProperty("name").GetString() ?? "file");
+                if (size < 0) return;
+
+                var partPath = System.IO.Path.Combine(_dir, name + ".part");
+                var metaPath = partPath + ".meta";
+
+                // one writer per filename; a second simultaneous sender is told to back off
+                var gate = _fileLocks.GetOrAdd(name.ToLowerInvariant(), _ => new SemaphoreSlim(1, 1));
+                if (!await gate.WaitAsync(0, ct))
+                {
+                    await Proto.WriteJsonAsync(stream, new { resume = -1 }, ct);
+                    return;
+                }
+                try
+                {
+                    Directory.CreateDirectory(_dir);
+                    long resume = 0;
+                    if (File.Exists(partPath) && File.Exists(metaPath))
+                    {
+                        try
+                        {
+                            using var m = JsonDocument.Parse(File.ReadAllText(metaPath));
+                            var mr = m.RootElement;
+                            if (mr.GetProperty("size").GetInt64() == size &&
+                                mr.GetProperty("sha").GetString() == sha)
+                            {
+                                var done = mr.GetProperty("done").GetInt64();
+                                if (done >= 0 && done <= size && new FileInfo(partPath).Length >= done)
+                                    resume = done;
+                            }
+                        }
+                        catch { /* corrupt meta → fresh start */ }
+                    }
+                    LastResumeOffset = resume;
+                    await Proto.WriteJsonAsync(stream, new { resume }, ct);
+
+                    var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                    long received;
+                    await using (var file = new FileStream(partPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, System.IO.FileShare.None, Tx.ChunkSize, useAsync: true))
+                    {
+                        if (file.Length < size) file.SetLength(size); // preallocate
+                        file.Seek(resume, SeekOrigin.Begin);
+
+                        // hash the trusted prefix already on disk, then keep hashing incoming bytes
+                        if (resume > 0) await HashPrefixAsync(file, hash, resume, ct);
+
+                        var buf = new byte[Tx.ChunkSize];
+                        received = resume;
+                        long lastCp = resume, lastAck = resume;
+                        int n;
+                        while (received < size && (n = await stream.ReadAsync(buf, ct)) > 0)
+                        {
+                            if (received + n > size) throw new InvalidDataException("oversized transfer");
+                            await file.WriteAsync(buf.AsMemory(0, n), ct);
+                            hash.AppendData(buf, 0, n);
+                            received += n;
+                            if (received - lastCp >= Tx.CheckpointEvery)
+                            {
+                                await file.FlushAsync(ct);
+                                file.Flush(true); // fsync so checkpoints survive a crash
+                                WriteMeta(metaPath, size, sha, received);
+                                lastCp = received;
+                            }
+                            if (received - lastAck >= Tx.AckEvery)
+                            {
+                                await Proto.WriteJsonAsync(stream, new { ack = received }, ct);
+                                lastAck = received;
+                            }
+                        }
+                        await file.FlushAsync(ct);
+                        file.Flush(true);
+                    }
+
+                    if (received != size) throw new IOException("connection lost — partial kept for resume");
+
+                    WriteMeta(metaPath, size, sha, received);
+                    var digest = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+                    if (digest != sha.ToLowerInvariant())
+                    {
+                        File.Delete(partPath);
+                        File.Delete(metaPath);
+                        await Proto.WriteJsonAsync(stream, new { ok = false, reason = "hash" }, ct);
+                        return;
+                    }
+
+                    var target = UniquePath(System.IO.Path.Combine(_dir, name));
+                    File.Move(partPath, target);
+                    File.Delete(metaPath);
+                    await Proto.WriteJsonAsync(stream, new { ok = true }, ct);
+                    Received?.Invoke(target);
+                }
+                finally { gate.Release(); }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch { /* drop → .part stays for resume */ }
+    }
+
+    static string Sanitize(string name)
+    {
+        name = System.IO.Path.GetFileName(name);
+        foreach (var c in System.IO.Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+        return string.IsNullOrWhiteSpace(name) ? "file" : name;
+    }
+
+    static async Task HashPrefixAsync(FileStream file, IncrementalHash hash, long len, CancellationToken ct)
+    {
+        file.Seek(0, SeekOrigin.Begin);
+        var buf = new byte[Tx.ChunkSize];
+        long left = len;
+        while (left > 0)
+        {
+            int n = await file.ReadAsync(buf.AsMemory(0, (int)Math.Min(buf.Length, left)), ct);
+            if (n == 0) throw new EndOfStreamException();
+            hash.AppendData(buf, 0, n);
+            left -= n;
+        }
+        file.Seek(len, SeekOrigin.Begin);
+    }
+
+    static void WriteMeta(string metaPath, long size, string sha, long done)
+    {
+        var tmp = metaPath + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(new { size, sha, done }));
+        File.Move(tmp, metaPath, overwrite: true);
+    }
+
+    static string UniquePath(string path)
+    {
+        if (!File.Exists(path)) return path;
+        var dir = System.IO.Path.GetDirectoryName(path)!;
+        var name = System.IO.Path.GetFileNameWithoutExtension(path);
+        var ext = System.IO.Path.GetExtension(path);
+        for (int i = 2; ; i++)
+        {
+            var p = System.IO.Path.Combine(dir, $"{name} ({i}){ext}");
+            if (!File.Exists(p)) return p;
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        try { _listener.Stop(); } catch { }
+    }
+}
