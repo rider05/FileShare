@@ -143,6 +143,15 @@ static class Sender
     }
 }
 
+// One live incoming transfer, shown in the main window while it runs.
+public sealed class RecvInfo
+{
+    public string Ip = "";
+    public string Name = "";
+    public long Size;
+    public long Received;
+}
+
 sealed class Receiver : IDisposable
 {
     readonly string _dir;
@@ -150,6 +159,7 @@ sealed class Receiver : IDisposable
     readonly CancellationTokenSource _cts = new();
     static readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new();
     public event Action<string>? Received;
+    public readonly ConcurrentDictionary<RecvInfo, byte> Active = new(); // live incoming transfers for the UI
 
     // test hook: offset the last resumed transfer started from
     public long LastResumeOffset { get; private set; }
@@ -205,6 +215,13 @@ sealed class Receiver : IDisposable
                     await Proto.WriteJsonAsync(stream, new { resume = -1 }, ct);
                     return;
                 }
+                var info = new RecvInfo
+                {
+                    Ip = (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "",
+                    Name = name,
+                    Size = size,
+                };
+                Active[info] = 1;
                 try
                 {
                     Directory.CreateDirectory(_dir);
@@ -226,6 +243,7 @@ sealed class Receiver : IDisposable
                         catch { /* corrupt meta → fresh start */ }
                     }
                     LastResumeOffset = resume;
+                    info.Received = resume;
                     await Proto.WriteJsonAsync(stream, new { resume }, ct);
 
                     var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -248,6 +266,7 @@ sealed class Receiver : IDisposable
                             await file.WriteAsync(buf.AsMemory(0, n), ct);
                             hash.AppendData(buf, 0, n);
                             received += n;
+                            info.Received = received;
                             if (received - lastCp >= Tx.CheckpointEvery)
                             {
                                 await file.FlushAsync(ct);
@@ -283,7 +302,7 @@ sealed class Receiver : IDisposable
                     await Proto.WriteJsonAsync(stream, new { ok = true }, ct);
                     Received?.Invoke(target);
                 }
-                finally { gate.Release(); }
+                finally { Active.TryRemove(info, out _); gate.Release(); }
             }
         }
         catch (OperationCanceledException) { }

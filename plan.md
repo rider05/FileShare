@@ -54,7 +54,7 @@ on completion:    {"ok":true}  |  {"ok":false,"reason":"hash"}\n
 
 ## UI changes from v1
 
-- **Windows:** progress shows %, MB/s, ETA, and states: Sending / Paused (reconnecting…) / Verifying hash. **Pause/Resume button**: pause cancels the in-flight send but keeps the receiver's offset; Resume re-sends paused + pending items (receiver's offset wins). On startup, lists `.part` files in the receive folder with a Resume button.
+- **Windows:** progress shows %, MB/s, ETA, and states: Sending / Paused (reconnecting…) / Verifying hash. **Pause/Resume button**: pause cancels the in-flight send but keeps the receiver's offset; Resume re-sends paused + pending items (receiver's offset wins). On startup, lists `.part` files in the receive folder with a Resume button. **Incoming transfers get a live receive strip** (file, device name, %, progress bar, MB/s, ETA), and the send bar shows an up-speed line.
 - **Android:** same progress in the foreground notification + inline. **Pause / Resume / Cancel buttons** per transfer (Pause/Resume drive the same offset-based resume). Received-files list.
 
 ## Milestones

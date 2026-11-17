@@ -14,6 +14,14 @@ class MainForm : Form
     readonly FlatBar _bar = new() { Dock = DockStyle.Bottom, Height = 6, Margin = new Padding(16, 4, 16, 6) };
     readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 24, TextAlign = ContentAlignment.MiddleLeft };
     readonly Label _partials = new() { Dock = DockStyle.Bottom, Height = 20, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(0x6B, 0x72, 0x80) };
+    // live receive strip (incoming transfers) and upload-speed line
+    readonly Panel _recvStrip = new() { Dock = DockStyle.Bottom, Height = 46, Visible = false, Padding = new Padding(16, 4, 16, 2) };
+    readonly Label _recvInfo = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
+    readonly FlatBar _recvBar = new() { Dock = DockStyle.Bottom, Height = 6, Margin = new Padding(16, 0, 16, 2) };
+    readonly Label _sendSpeed = new() { Dock = DockStyle.Bottom, Height = 20, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(0x6B, 0x72, 0x80), Visible = false, Margin = new Padding(16, 2, 0, 0) };
+    double _recvSpeedBps;
+    long _lastRecvBytes;
+    DateTime _lastRecvTick = DateTime.UtcNow;
     readonly Button _btnSend = MakeBtn("Send to selected device", 180, primary: true);
     readonly Button _btnPause = MakeBtn("Pause", 92);
     readonly Button _btnCancel = MakeBtn("Cancel", 92);
@@ -141,7 +149,11 @@ class MainForm : Form
         layout.Controls.Add(recvRow, 0, 2);
         layout.SetColumnSpan(recvRow, 2);
 
+        _recvStrip.Controls.Add(_recvInfo);
+        _recvStrip.Controls.Add(_recvBar);
         Controls.Add(layout);
+        Controls.Add(_recvStrip);
+        Controls.Add(_sendSpeed);
         Controls.Add(_bar);
         Controls.Add(_partials);
         Controls.Add(_status);
@@ -152,7 +164,7 @@ class MainForm : Form
         _discovery.Changed += () => { try { BeginInvoke((MethodInvoker)RefreshDevices); } catch (ObjectDisposedException) { } };
         StartReceiver();
 
-        _timer.Tick += (s, e) => { _tickCount++; RefreshQueue(); if (_tickCount % 4 == 0) RefreshPartials(); };
+        _timer.Tick += (s, e) => { _tickCount++; RefreshQueue(); UpdateReceive(); if (_tickCount % 4 == 0) RefreshPartials(); };
         _timer.Start();
         RefreshDevices();
         RefreshPartials();
@@ -309,6 +321,59 @@ class MainForm : Form
 
         var active = _queue.FirstOrDefault(i => i.State is TransferState.Sending or TransferState.Reconnecting or TransferState.Hashing or TransferState.Connecting);
         _bar.Fraction = active is { Size: > 0 } a ? Math.Clamp(a.Progress / (double)a.Size, 0, 1) : 0;
+
+        if (active is { SpeedBps: > 0 } up)
+        {
+            var eta = up.Size > up.Progress ? Eta((long)((up.Size - up.Progress) / up.SpeedBps)) : "";
+            _sendSpeed.Text = $"Up {Fmt(up.SpeedBps)}/s, {Pct(up)}{(eta.Length > 0 ? $", ETA {eta}" : "")}";
+            _sendSpeed.Visible = true;
+        }
+        else _sendSpeed.Visible = false;
+    }
+
+    // live receive strip: aggregate bytes/speed over all in-flight incoming transfers
+    void UpdateReceive()
+    {
+        var now = DateTime.UtcNow;
+        var actives = _receiver.Active.Keys.ToArray();
+        if (actives.Length == 0)
+        {
+            _recvStrip.Visible = false;
+            _recvSpeedBps = 0;
+            _lastRecvBytes = 0;
+            _lastRecvTick = now;
+            return;
+        }
+
+        long recv = actives.Sum(a => a.Received), size = actives.Sum(a => a.Size);
+        if (recv < _lastRecvBytes) { _recvSpeedBps = 0; _lastRecvBytes = recv; _lastRecvTick = now; } // next file started
+        var dt = (now - _lastRecvTick).TotalSeconds;
+        if (dt >= 0.4)
+        {
+            var inst = Math.Max(0, recv - _lastRecvBytes) / dt;
+            _recvSpeedBps = _recvSpeedBps == 0 ? inst : inst * 0.3 + _recvSpeedBps * 0.7;
+            _lastRecvTick = now;
+            _lastRecvBytes = recv;
+        }
+
+        var pct = size > 0 ? 100.0 * recv / size : 0;
+        var what = actives.Length == 1 ? actives[0].Name : $"{actives.Length} files";
+        var dev = actives.Length == 1 ? DeviceName(actives[0].Ip) : $"{actives.Length} devices";
+        var txt = $"Receiving {what} from {dev}, {pct:F1}%, {Fmt((long)_recvSpeedBps)}/s";
+        if (_recvSpeedBps > 1 && size > recv) txt += $", ETA {Eta((long)((size - recv) / _recvSpeedBps))}";
+        _recvInfo.Text = txt;
+        _recvBar.Fraction = size > 0 ? Math.Clamp(recv / (double)size, 0, 1) : 0;
+        _recvStrip.Visible = true;
+    }
+
+    string DeviceName(string ip) => _shown.FirstOrDefault(p => p.Ip == ip)?.Name ?? ip;
+
+    static string Eta(long sec)
+    {
+        if (sec < 0) sec = 0;
+        if (sec < 60) return $"{sec}s";
+        if (sec < 3600) return $"{sec / 60}m {sec % 60}s";
+        return $"{sec / 3600}h {sec % 3600 / 60}m";
     }
 
     void RefreshPartials()
