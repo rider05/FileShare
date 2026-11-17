@@ -7,7 +7,7 @@
 <title>FileShare, interface preview</title>
 <style>
   /* Shell: neutral, no accent of its own. Color lives inside the two mockups,
-     where it is semantic and platform-correct (Fluent 2 / Material 3). */
+     where it is semantic and platform-correct (ShareIt-style dark / Material 3). */
   :root {
     --shell-bg:#f5f5f6; --shell-ink:#1c1c1f; --shell-dim:#55555e;
     --line:#e3e3e6;
@@ -31,74 +31,91 @@
   .note b { color:var(--shell-ink); font-weight:600; }
 
   /* ============================================================
-     Windows mockup. Fluent 2 light: Segoe UI, 4px control corners,
-     accent #005FB8 (the color the real WinForms app inherits).
+     Windows mockup. ShareIt-style dark, the scheme the real WinForms
+     app now renders: bg #0E1726, cards #16233A, edges #2A3E5F,
+     accent #00A6FF, dark title bar, letter avatars, big drop zone.
      ============================================================ */
   .win {
     width:780px; max-width:100%;
-    background:#f3f3f3; border:1px solid rgba(0,0,0,.10); border-radius:8px;
-    box-shadow:0 8px 28px rgba(16,18,24,.10), 0 1px 3px rgba(16,18,24,.06);
+    background:#0E1726; border:1px solid rgba(0,0,0,.35); border-radius:8px;
+    box-shadow:0 8px 28px rgba(8,12,22,.35), 0 1px 3px rgba(8,12,22,.2);
     overflow:hidden;
   }
-  .titlebar { height:40px; display:flex; align-items:center; justify-content:space-between; padding-left:14px; }
-  .titlebar .t { font-size:12px; color:#1a1a1a; }
-  .wbtns { display:flex; height:40px; }
-  .wbtn { width:46px; display:flex; align-items:center; justify-content:center; color:#1a1a1a; }
-  .wbtn svg { stroke:#1a1a1a; stroke-width:1; fill:none; }
-  .win-body { padding:4px 16px 16px; }
+  .titlebar { height:38px; display:flex; align-items:center; justify-content:space-between;
+              padding-left:14px; background:#1C2739; }
+  .titlebar .t { font-size:12px; color:#EEF3FB; }
+  .wbtns { display:flex; height:38px; }
+  .wbtn { width:46px; display:flex; align-items:center; justify-content:center; color:#EEF3FB; }
+  .wbtn:hover { background:#2A3E5F; }
+  .wbtn svg { stroke:#EEF3FB; stroke-width:1; fill:none; }
+  .win-body { padding:14px 16px 14px; }
   .cols { display:flex; gap:16px; }
   .col1 { flex:1; min-width:0; }
   .col2 { flex:1.3; min-width:0; }
-  .flabel { font-size:13px; font-weight:600; color:#1a1a1a; margin:12px 0 6px; }
+  .flabel { font-size:13px; font-weight:600; color:#EEF3FB; margin:0 0 6px; }
   .listbox {
-    background:#fff; border:1px solid #d6d6d6; border-radius:4px; height:196px;
+    background:#16233A; border:1px solid #2A3E5F; border-radius:4px; height:170px;
     font-size:12.5px; overflow:hidden;
   }
-  .lrow { display:flex; justify-content:space-between; align-items:center; gap:12px;
-          height:28px; padding:0 10px; color:#1a1a1a; white-space:nowrap; }
-  .lrow .nm { overflow:hidden; text-overflow:ellipsis; }
-  .lrow .meta { color:#6b7280; font-size:12px; flex:none; }
-  .lrow.sel { background:#dcebf9; }
-  .lrow.manual { color:#6b7280; }
-  .st-send   { color:#0f6cbd; font-weight:600; }
-  .st-pause  { color:#b54708; font-weight:600; }
-  .st-done   { color:#067647; font-weight:600; }
-  .st-fail   { color:#b42318; font-weight:600; }
-  .st-wait   { color:#6b7280; }
+  .lrow { display:flex; justify-content:space-between; align-items:center; gap:10px;
+          height:30px; padding:0 8px; color:#EEF3FB; white-space:nowrap; }
+  .lrow .nm { overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:8px; }
+  .lrow .meta { color:#8CA3C7; font-size:12px; flex:none; }
+  .lrow.sel { background:#113B66; }
+  .lrow.manual { color:#8CA3C7; }
+  .av { width:18px; height:18px; border-radius:50%; flex:none;
+        display:inline-flex; align-items:center; justify-content:center;
+        font-size:10px; font-weight:700; color:#fff; }
+  .av.c1 { background:#00A6FF; } .av.c2 { background:#7C5CFF; }
+  .av.c3 { background:#00C9A7; } .av.c4 { background:#FF8A3D; }
+  .av.c5 { background:#E54D8C; } .av.cm { background:#2A3E5F; }
+  .st-send   { color:#00A6FF; font-weight:600; }
+  .st-pause  { color:#F59E0B; font-weight:600; }
+  .st-done   { color:#22C55E; font-weight:600; }
+  .st-fail   { color:#EF4444; font-weight:600; }
+  .st-wait   { color:#8CA3C7; }
   .iprow { display:flex; align-items:center; gap:8px; margin-top:10px; }
-  .iprow .lbl { font-size:12px; color:#6b7280; flex:none; }
+  .iprow .lbl { font-size:12px; color:#8CA3C7; flex:none; }
   .tin {
-    font-family:inherit; font-size:12.5px; color:#1a1a1a; background:#fff;
-    border:1px solid #d6d6d6; border-radius:4px; padding:5px 8px; width:128px;
+    font-family:inherit; font-size:12.5px; color:#EEF3FB; background:#16233A;
+    border:1px solid #2A3E5F; border-radius:4px; padding:5px 8px; width:150px;
   }
-  .tin.wide { width:236px; color:#6b7280; }
-  .actions { display:flex; align-items:center; gap:8px; margin-top:16px; flex-wrap:wrap; }
+  .tin.wide { width:210px; color:#8CA3C7; }
   .btn {
-    height:32px; padding:0 12px; display:inline-flex; align-items:center; gap:7px;
+    height:30px; padding:0 12px; display:inline-flex; align-items:center; gap:7px;
     font-size:13px; border-radius:4px; border:1px solid transparent; flex:none;
   }
   .btn svg { flex:none; }
-  .btn.sec { background:#fbfbfb; border-color:#d1d1d1; border-bottom-color:#c2c2c2; color:#1a1a1a; }
-  .btn.pri { background:#005FB8; color:#fff; }
-  .btn.dis { background:#f0f0f0; border-color:#e6e6e6; color:#9d9d9d; }
-  .hint { font-size:12px; color:#6b7280; margin-left:4px; }
-  .recv { display:flex; align-items:center; gap:8px; margin-top:16px; }
-  .recv .lbl { font-size:12.5px; color:#1a1a1a; flex:none; }
-  .pwrap { margin-top:18px; }
-  .ptrack { height:4px; border-radius:2px; background:#e6e6e6; overflow:hidden; }
-  .pfill { height:100%; background:#005FB8; border-radius:2px; }
-  .pmeta { display:flex; justify-content:space-between; margin-top:8px; font-size:12px; color:#6b7280; }
-  .statusbar {
-    border-top:1px solid #e4e4e4; margin-top:14px; padding:8px 2px 0;
-    display:flex; justify-content:space-between; font-size:12px; color:#1a1a1a;
+  .btn.sec { background:#16233A; border-color:#2A3E5F; color:#EEF3FB; }
+  .btn.pri { background:#00A6FF; color:#fff; }
+  .btn.dis { background:#121D2E; border-color:#1E2F49; color:#5A6E90; }
+  .dropzone {
+    background:#16233A; border:1px solid #2A3E5F; border-radius:4px;
+    height:92px; margin-bottom:8px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
   }
-  .statusbar .r { color:#6b7280; }
+  .dropzone .big { font-size:14.5px; color:#EEF3FB; }
+  .dropzone .small { font-size:12px; color:#8CA3C7; }
+  .actions { display:flex; align-items:center; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  .recv { display:flex; align-items:center; gap:8px; margin-top:12px; }
+  .recv .lbl { font-size:12.5px; color:#EEF3FB; flex:none; }
+  .strip { margin-top:14px; }
+  .strip .lbl { font-size:12.5px; color:#EEF3FB; margin-bottom:6px; }
+  .ptrack { height:4px; border-radius:2px; background:#233650; overflow:hidden; }
+  .pfill { height:100%; background:#00A6FF; border-radius:2px; }
+  .pmeta { display:flex; justify-content:space-between; margin-top:7px; font-size:12px; color:#8CA3C7; }
+  .pmeta .up { color:#00A6FF; }
+  .statusbar {
+    border-top:1px solid #1E2F49; margin-top:12px; padding:8px 2px 0;
+    display:flex; justify-content:space-between; font-size:12px; color:#EEF3FB;
+  }
+  .statusbar .r { color:#8CA3C7; }
 
   /* ============================================================
      Android mockup. Material 3 baseline light tokens (the scheme the
      Compose app actually renders): primary #6750A4, surface #FEF7FF,
-     surfaceVariant #E7E0EC, primaryContainer #EADDFF. Pill buttons,
-     12px cards: M3's documented shape rules.
+     surfaceVariant #E7E0EC, primaryContainer #EADDFF. One scrollable
+     list: devices, connect row, actions, transfers, received.
      ============================================================ */
   .phone {
     width:372px; max-width:100%;
@@ -129,13 +146,13 @@
   .mfield .fake { border:1px solid #79747E; border-radius:4px; padding:10px 12px; font-size:13.5px; color:#1D1B20; }
   .tbtn { display:inline-flex; align-items:center; gap:5px; font-size:14px; font-weight:500; color:#6750A4; flex:none; }
   .tbtn svg { flex:none; }
-  .mbtns { display:flex; gap:10px; margin-top:14px; }
-  .pill { height:38px; padding:0 20px; display:inline-flex; align-items:center; border-radius:999px; font-size:13.5px; font-weight:500; }
+  .mbtns { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+  .pill { height:38px; padding:0 18px; display:inline-flex; align-items:center; border-radius:999px; font-size:13.5px; font-weight:500; }
   .pill.fill { background:#6750A4; color:#fff; }
   .pill.out  { border:1px solid #79747E; color:#6750A4; }
   .msect { font-size:15px; font-weight:600; color:#1D1B20; margin:20px 0 6px; }
   .trow { padding:6px 0 10px; }
-  .tr1 { display:flex; justify-content:space-between; align-items:center; font-size:13.5px; color:#1D1B20; }
+  .tr1 { display:flex; justify-content:space-between; align-items:center; font-size:13.5px; color:#1D1B20; gap:8px; }
   .tr1 .acts { font-size:13px; font-weight:500; color:#6750A4; white-space:nowrap; }
   .tr1 .acts { display:inline-flex; align-items:center; gap:14px; }
   .tr1 .acts span { display:inline-flex; align-items:center; gap:4px; }
@@ -145,6 +162,9 @@
   .mfill.hold { background:#625B71; }
   .tr2 { font-size:11.5px; color:#49454F; }
   .rrow { display:flex; justify-content:space-between; align-items:center; padding:7px 0; font-size:13.5px; color:#1D1B20; }
+  .share { display:flex; align-items:center; gap:8px; margin-top:16px; padding:10px 12px;
+           border-radius:12px; background:#E7E0EC; font-size:12px; color:#49454F; }
+  .share svg { flex:none; color:#6750A4; }
 
   @media (max-width:820px) { .stage { gap:32px; } }
 </style>
@@ -159,7 +179,7 @@
 
   <div class="stage">
 
-    <!-- ================= WINDOWS (Fluent 2) ================= -->
+    <!-- ================= WINDOWS (ShareIt-style dark) ================= -->
     <figure class="slot" style="margin:0">
       <div class="win" role="img" aria-label="Mockup of the FileShare Windows main window">
         <div class="titlebar">
@@ -175,59 +195,66 @@
             <div class="col1">
               <div class="flabel">Devices (auto-discovered on WiFi)</div>
               <div class="listbox">
-                <div class="lrow sel"><span class="nm">Pixel 8&nbsp;&nbsp;(android)</span><span class="meta">192.168.1.23</span></div>
-                <div class="lrow"><span class="nm">DESKTOP-SMBAL&nbsp;&nbsp;(windows)</span><span class="meta">192.168.1.10</span></div>
-                <div class="lrow manual"><span class="nm">192.168.1.77&nbsp;&nbsp;(manual)</span></div>
+                <div class="lrow sel"><span class="nm"><span class="av c1">P</span>Pixel 8&nbsp;&nbsp;(android)</span><span class="meta">192.168.1.23</span></div>
+                <div class="lrow"><span class="nm"><span class="av c2">D</span>DESKTOP-SMBAL&nbsp;&nbsp;(windows)</span><span class="meta">192.168.1.10</span></div>
+                <div class="lrow manual"><span class="nm"><span class="av cm">M</span>manual 192.168.1.77</span></div>
               </div>
               <div class="iprow">
-                <span class="lbl">No broadcast? Connect by IP</span>
+                <span class="lbl">Connect by IP:</span>
                 <input class="tin" value="192.168.1.77" aria-label="IP address">
                 <span class="btn sec"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M7 2.5v9M2.5 7h9"/></svg>Add</span>
               </div>
             </div>
             <div class="col2">
-              <div class="flabel">Files (drag and drop here, or use Add files)</div>
+              <div class="dropzone">
+                <span class="big">Drag files or folders here</span>
+                <span class="small">or click to browse</span>
+              </div>
               <div class="listbox">
-                <div class="lrow"><span class="nm">movie.mkv</span><span class="meta st-send">Sending, 41.7%</span></div>
+                <div class="lrow"><span class="nm">movie.mkv</span><span class="meta st-send">Sending, 41.7%, 26.4 MB/s</span></div>
+                <div class="lrow"><span class="nm">Vacation/day2.jpg</span><span class="meta st-send">Sending, 88.2%, 21.9 MB/s</span></div>
                 <div class="lrow"><span class="nm">report.pdf</span><span class="meta st-pause">Paused</span></div>
-                <div class="lrow"><span class="nm">dataset.parquet</span><span class="meta st-pause">Reconnecting</span></div>
+                <div class="lrow"><span class="nm">dataset.parquet</span><span class="meta st-pause">Reconnecting, resumes at 4.2 GB</span></div>
                 <div class="lrow"><span class="nm">photos-2026.zip</span><span class="meta st-done">Done</span></div>
-                <div class="lrow"><span class="nm">backup.iso</span><span class="meta st-fail">Failed, will resume</span></div>
-                <div class="lrow"><span class="nm">notes.txt</span><span class="meta st-wait">Waiting</span></div>
+                <div class="lrow"><span class="nm">backup.iso</span><span class="meta st-fail">Failed, disk full</span></div>
+                <div class="lrow"><span class="nm">notes.txt</span><span class="meta st-wait">1.2 MB</span></div>
               </div>
             </div>
           </div>
 
           <div class="actions">
             <span class="btn sec"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M7 2.5v9M2.5 7h9"/></svg>Add files&hellip;</span>
-            <span class="btn pri"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 7h9.5M8 3.5L11.5 7 8 10.5"/></svg>Send to Pixel 8</span>
+            <span class="btn sec"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.4c0-.8.6-1.4 1.4-1.4h3.1l1.5 1.5h4.6c.8 0 1.4.6 1.4 1.4v5.1c0 .8-.6 1.4-1.4 1.4H3.4c-.8 0-1.4-.6-1.4-1.4z"/></svg>Add folder&hellip;</span>
+            <span class="btn pri"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 7h9.5M8 3.5L11.5 7 8 10.5"/></svg>Send to selected device</span>
             <span class="btn sec"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" stroke="none" aria-hidden="true"><rect x="3.4" y="2.6" width="2.6" height="8.8" rx="1"/><rect x="8" y="2.6" width="2.6" height="8.8" rx="1"/></svg>Pause</span>
             <span class="btn dis"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg>Cancel</span>
-            <span class="hint">Paused files resume from the receiver's exact offset.</span>
           </div>
 
           <div class="recv">
-            <span class="lbl">Save received files to</span>
-            <input class="tin wide" value="C:\Users\smbal\Documents\FileShare" aria-label="Receive folder">
+            <span class="lbl">Save received files to:</span>
+            <input class="tin wide" value="D:\Received" aria-label="Receive folder">
             <span class="btn sec"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.7 2.3l2 2L5.4 10.6l-2.7.7.7-2.7z"/></svg>Change&hellip;</span>
             <span class="btn sec"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.4c0-.8.6-1.4 1.4-1.4h3.1l1.5 1.5h4.6c.8 0 1.4.6 1.4 1.4v5.1c0 .8-.6 1.4-1.4 1.4H3.4c-.8 0-1.4-.6-1.4-1.4z"/></svg>Open folder</span>
           </div>
 
-          <div class="pwrap">
+          <div class="strip">
+            <div class="lbl">Receiving movie.mkv from Pixel 8, 41.7%, 21.3 MB/s, ETA 1m 12s</div>
             <div class="ptrack"><div class="pfill" style="width:41.7%"></div></div>
-            <div class="pmeta">
-              <span>movie.mkv, 1.78 GB of 4.27 GB, 26.4 MB/s</span>
-              <span>ETA 1m 49s</span>
-            </div>
+          </div>
+
+          <div class="ptrack" style="margin-top:12px"><div class="pfill" style="width:41.7%"></div></div>
+          <div class="pmeta">
+            <span class="up">Up 26.4 MB/s, 41.7%, ETA 1m 49s</span>
+            <span>movie.mkv, 1.78 GB of 4.27 GB</span>
           </div>
 
           <div class="statusbar">
             <span>Sending 2 files to Pixel 8</span>
-            <span class="r">1 interrupted file will resume automatically on re-send</span>
+            <span class="r">1 partial file will resume automatically on re-send</span>
           </div>
         </div>
       </div>
-      <figcaption>Windows app, main window (WinForms, Fluent 2)</figcaption>
+      <figcaption>Windows app, main window (WinForms, ShareIt-style dark). The receive strip and the up-speed line appear only while a transfer runs.</figcaption>
     </figure>
 
     <!-- ================= ANDROID (Material 3) ================= -->
@@ -259,22 +286,23 @@
 
             <div class="mbtns">
               <span class="pill out"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>Pick files</span>
+              <span class="pill out"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>Folder</span>
               <span class="pill fill"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>Send 2 files</span>
             </div>
 
             <div class="msect">Transfers</div>
             <div class="trow">
-              <div class="tr1"><span>movie.mkv, sending</span><span class="acts"><span><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>Pause</span><span><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>Cancel</span></span></div>
+              <div class="tr1"><span>Camera/2026/img_041.jpg, sending</span><span class="acts"><span><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>Pause</span><span><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>Cancel</span></span></div>
               <div class="mtrack"><div class="mfill" style="width:41.7%"></div></div>
-              <div class="tr2">1.78 GB of 4.27 GB, 26.4 MB/s</div>
+              <div class="tr2">1.78 GB of 4.27 GB</div>
             </div>
             <div class="trow">
               <div class="tr1"><span>report.pdf, paused</span><span class="acts"><span><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Resume</span></span></div>
               <div class="mtrack"><div class="mfill hold" style="width:67.3%"></div></div>
-              <div class="tr2">Paused. Resumes from 3.43 GB.</div>
+              <div class="tr2">3.43 GB of 5.1 GB</div>
             </div>
             <div class="trow">
-              <div class="tr1"><span>photos-2026.zip, done</span></div>
+              <div class="tr1"><span>Vacation/day1/beach.jpg, done</span></div>
               <div class="mtrack"><div class="mfill" style="width:100%"></div></div>
               <div class="tr2">812 MB sent.</div>
             </div>
@@ -282,19 +310,26 @@
             <div class="msect">Received</div>
             <div class="rrow"><span>backup-2026-11-16.tar</span><span class="tbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>Open</span></div>
             <div class="rrow"><span>scan-receipt.pdf</span><span class="tbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>Open</span></div>
+
+            <div class="share">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+              Files can also arrive here from any app via Share, then pick a device and send.
+            </div>
           </div>
         </div>
       </div>
-      <figcaption>Android app, main screen (Compose, Material 3). The foreground notification mirrors transfer progress while backgrounded.</figcaption>
+      <figcaption>Android app, main screen (Compose, Material 3). One scrollable list, so every section is reachable on any phone. The foreground notification mirrors transfer progress while backgrounded.</figcaption>
     </figure>
 
   </div>
 
   <div class="note">
-    <b>How to read this:</b> a static snapshot with sample data.
-    The states shown (sending, paused, reconnecting, done, failed), the auto-discovered device list with the
-    Connect by IP fallback, and the Pause / Resume / Cancel controls all match the running apps. Nothing is
-    clickable here; layout and states match, pixels are approximate.
+    <b>How to read this:</b> a static snapshot with sample data, matching the apps as built.
+    Windows: dark navy cards, the big drop zone, letter-avatar device rows, folder paths in the
+    queue, and the live receive strip plus up-speed line. Android: the same sections as one
+    scrollable list, with the Folder picker and the Share sheet entry. The states shown (sending,
+    paused, reconnecting, done, failed) and the Connect by IP fallback all match the running apps.
+    Nothing is clickable here; layout and states match, pixels are approximate.
   </div>
 
 </div>
