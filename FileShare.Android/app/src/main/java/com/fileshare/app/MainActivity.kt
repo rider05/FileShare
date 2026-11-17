@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -182,139 +181,135 @@ fun App() {
             if (root != null) Repo.pendingUris.value = Repo.pendingUris.value + walkTree(ctx, root)
         }
 
-        Column(
+        // one scrollable list; sections are items so nothing clips or overlaps on small screens
+        LazyColumn(
             Modifier.fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("FileShare", style = MaterialTheme.typography.headlineMedium)
-            Text(
-                if (peers.isEmpty()) "Looking for devices on this WiFi…" else "${peers.size} device(s) on this WiFi. Tap one to select.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-
-            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
-                items(peers) { p ->
-                    Card(
-                        onClick = { selectedIp = p.ip },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (p.ip == selectedIp) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surfaceVariant,
-                        ),
-                    ) {
-                        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                            Text("${p.name}  (${p.platform})", style = MaterialTheme.typography.titleMedium)
-                            Text(p.ip, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = ip,
-                    onValueChange = { ip = it },
-                    Modifier.weight(1f),
-                    label = { Text("Connect by IP (if discovery is blocked)") },
-                    singleLine = true,
+            item {
+                Text("FileShare", style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    if (peers.isEmpty()) "Looking for devices on this WiFi…" else "${peers.size} device(s) on this WiFi. Tap one to select.",
+                    style = MaterialTheme.typography.bodySmall,
                 )
-                TextButton(onClick = {
-                    val t = ip.trim()
-                    if (t.isNotEmpty()) {
-                        Repo.manualPeers.value = Repo.manualPeers.value +
-                            Peer(name = "manual $t", platform = "manual", ip = t, tcp = Discovery.TCP_PORT)
-                        Repo.setDiscovered(Discovery.snapshot())
-                        selectedIp = t
-                    }
-                }) {
-                    Icon(Icons.Filled.Add, contentDescription = null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Add")
-                }
             }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { pick.launch(arrayOf("*/*")) }) {
-                    Icon(DescriptionIcon, contentDescription = null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Pick files")
-                }
-                OutlinedButton(onClick = { pickTree.launch(null) }) {
-                    Icon(FolderIcon, contentDescription = null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Folder")
-                }
-                Button(
-                    enabled = selectedIp != null && pending.isNotEmpty(),
-                    onClick = {
-                        val target = selectedIp
-                        val picks = pending
-                        if (target != null && picks.isNotEmpty()) TransferService.send(ctx, target, picks)
-                    },
+            items(peers, key = { it.ip }) { p ->
+                Card(
+                    onClick = { selectedIp = p.ip },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (p.ip == selectedIp) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                    ),
                 ) {
-                    Icon(Icons.Filled.Send, contentDescription = null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Send ${pending.size} file(s)")
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Text("${p.name}  (${p.platform})", style = MaterialTheme.typography.titleMedium)
+                        Text(p.ip, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
-
-            Text("Transfers", style = MaterialTheme.typography.titleMedium)
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
-                items(transfers) { t ->
-                    Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "${t.label}, ${t.state.label()}",
-                                Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            if (t.state in activeStates) {
-                                TextButton(onClick = { TransferService.pause(ctx) }) {
-                                    Icon(PauseIcon, contentDescription = null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Pause")
-                                }
-                                TextButton(onClick = { TransferService.cancel(ctx) }) {
-                                    Icon(Icons.Filled.Close, contentDescription = null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Cancel")
-                                }
-                            } else if (t.state == TState.PAUSED || t.state == TState.PENDING) {
-                                TextButton(onClick = { TransferService.resume(ctx) }) {
-                                    Icon(Icons.Filled.PlayArrow, contentDescription = null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Resume")
-                                }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = ip,
+                        onValueChange = { ip = it },
+                        Modifier.weight(1f),
+                        label = { Text("Connect by IP (if discovery is blocked)") },
+                        singleLine = true,
+                    )
+                    TextButton(onClick = {
+                        val t = ip.trim()
+                        if (t.isNotEmpty()) {
+                            Repo.manualPeers.value = Repo.manualPeers.value +
+                                Peer(name = "manual $t", platform = "manual", ip = t, tcp = Discovery.TCP_PORT)
+                            Repo.setDiscovered(Discovery.snapshot())
+                            selectedIp = t
+                        }
+                    }) {
+                        Icon(Icons.Filled.Add, contentDescription = null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add")
+                    }
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { pick.launch(arrayOf("*/*")) }) {
+                        Icon(DescriptionIcon, contentDescription = null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Pick files")
+                    }
+                    OutlinedButton(onClick = { pickTree.launch(null) }) {
+                        Icon(FolderIcon, contentDescription = null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Folder")
+                    }
+                    Button(
+                        enabled = selectedIp != null && pending.isNotEmpty(),
+                        onClick = {
+                            val target = selectedIp
+                            val picks = pending
+                            if (target != null && picks.isNotEmpty()) TransferService.send(ctx, target, picks)
+                        },
+                    ) {
+                        Icon(Icons.Filled.Send, contentDescription = null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Send ${pending.size} file(s)")
+                    }
+                }
+            }
+            item { Text("Transfers", style = MaterialTheme.typography.titleMedium) }
+            items(transfers, key = { it.uri }) { t ->
+                Column(Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${t.label}, ${t.state.label()}",
+                            Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        if (t.state in activeStates) {
+                            TextButton(onClick = { TransferService.pause(ctx) }) {
+                                Icon(PauseIcon, contentDescription = null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Pause")
+                            }
+                            TextButton(onClick = { TransferService.cancel(ctx) }) {
+                                Icon(Icons.Filled.Close, contentDescription = null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Cancel")
+                            }
+                        } else if (t.state == TState.PAUSED || t.state == TState.PENDING) {
+                            TextButton(onClick = { TransferService.resume(ctx) }) {
+                                Icon(Icons.Filled.PlayArrow, contentDescription = null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Resume")
                             }
                         }
-                        LinearProgressIndicator(
-                            progress = {
-                                if (t.size > 0) (t.progress.toFloat() / t.size).coerceIn(0f, 1f) else 0f
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Text(
-                            "${fmtBytes(t.progress)} of ${fmtBytes(t.size)}" + (t.error?.let { "  ($it)" } ?: ""),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
                     }
+                    LinearProgressIndicator(
+                        progress = {
+                            if (t.size > 0) (t.progress.toFloat() / t.size).coerceIn(0f, 1f) else 0f
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "${fmtBytes(t.progress)} of ${fmtBytes(t.size)}" + (t.error?.let { "  ($it)" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
-
-            Text("Received", style = MaterialTheme.typography.titleMedium)
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 180.dp)) {
-                items(received) { f ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(f.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        if (f.uri != null) {
-                            TextButton(onClick = { openFile(ctx, f.uri) }) {
-                                Icon(Icons.Filled.ExitToApp, contentDescription = null, Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Open")
-                            }
+            item { Text("Received", style = MaterialTheme.typography.titleMedium) }
+            items(received, key = { it.at }) { f ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(f.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    if (f.uri != null) {
+                        TextButton(onClick = { openFile(ctx, f.uri) }) {
+                            Icon(Icons.Filled.ExitToApp, contentDescription = null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Open")
                         }
                     }
                 }

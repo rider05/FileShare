@@ -11,7 +11,7 @@ class MainForm : Form
     readonly ListBox _devices = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true };
     readonly ListBox _queueList = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true };
     readonly TextBox _txtIp = new() { Width = 160, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0xEE, 0xF3, 0xFB) };
-    readonly TextBox _txtDir = new() { Width = 260, ReadOnly = true, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0x8C, 0xA3, 0xC7) };
+    readonly TextBox _txtDir = new() { Width = 200, ReadOnly = true, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0x8C, 0xA3, 0xC7) };
     readonly FlatBar _bar = new() { Dock = DockStyle.Bottom, Height = 6, Margin = new Padding(16, 4, 16, 6) };
     readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 24, TextAlign = ContentAlignment.MiddleLeft };
     readonly Label _partials = new() { Dock = DockStyle.Bottom, Height = 20, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(0x6B, 0x72, 0x80) };
@@ -61,28 +61,31 @@ class MainForm : Form
     {
         Text = "FileShare";
         Font = new Font("Segoe UI", 9.5f);
+        AutoScaleMode = AutoScaleMode.Dpi; // scale layout with the display, not just the fonts
         BackColor = Bg;
         ForeColor = Ink;
         Size = new Size(920, 640);
         MinimumSize = new Size(700, 480);
         WireDrop(this);
+        _btnSend.Height = _btnPause.Height = _btnCancel.Height = BtnH;
+        _recvStrip.Height = Font.Height + 26;
+        _status.Height = _sendSpeed.Height = _partials.Height = Font.Height + 5;
 
         SetupList(_devices, DrawDevices);
         SetupList(_queueList, DrawQueue);
         _queueList.SelectionMode = SelectionMode.None;
 
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(12) };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new Padding(12) };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         var pDevices = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 16, 0) };
         var ipRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 38, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
-        ipRow.Controls.Add(new Label { Text = "No broadcast? Connect by IP:", AutoSize = true, Margin = new Padding(3, 8, 3, 0), ForeColor = Dim });
+        ipRow.Controls.Add(new Label { Text = "Connect by IP:", AutoSize = true, Margin = new Padding(3, 8, 3, 0), ForeColor = Dim });
         ipRow.Controls.Add(_txtIp);
         var btnAddIp = MakeBtn("Add by IP", 90);
+        btnAddIp.Height = BtnH;
         btnAddIp.Click += (s, e) => AddByIp();
         ipRow.Controls.Add(btnAddIp);
         pDevices.Controls.Add(_devices);
@@ -111,11 +114,13 @@ class MainForm : Form
         }
         pQueue.Controls.Add(drop);
 
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, Height = 38, WrapContents = false, Margin = new Padding(0, 12, 0, 0) };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false };
         var btnAdd = MakeBtn("Add files…", 110);
+        btnAdd.Height = BtnH;
         btnAdd.Click += (s, e) => browse();
         buttons.Controls.Add(btnAdd);
         var btnFolder = MakeBtn("Add folder…", 112);
+        btnFolder.Height = BtnH;
         btnFolder.Click += (s, e) =>
         {
             using var dlg = new FolderBrowserDialog { Description = "Folder to send" };
@@ -125,7 +130,6 @@ class MainForm : Form
         buttons.Controls.Add(_btnSend);
         buttons.Controls.Add(_btnPause);
         buttons.Controls.Add(_btnCancel);
-        buttons.Controls.Add(new Label { Text = "Paused files resume from the receiver's exact offset.", AutoSize = true, Margin = new Padding(10, 10, 0, 0), ForeColor = Dim });
         _btnSend.Click += (s, e) => StartRun();
         _btnPause.Click += (s, e) =>
         {
@@ -146,10 +150,11 @@ class MainForm : Form
             _status.Text = "Cancelled, partial files will resume automatically.";
         };
 
-        var recvRow = new FlowLayoutPanel { Dock = DockStyle.Fill, Height = 38, WrapContents = false, Margin = new Padding(0, 12, 0, 0) };
+        var recvRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false };
         recvRow.Controls.Add(new Label { Text = "Save received files to:", AutoSize = true, Margin = new Padding(3, 8, 3, 0) });
         recvRow.Controls.Add(_txtDir);
         var btnBrowse = MakeBtn("Change…", 86);
+        btnBrowse.Height = BtnH;
         btnBrowse.Click += (s, e) =>
         {
             using var dlg = new FolderBrowserDialog();
@@ -163,6 +168,7 @@ class MainForm : Form
         };
         recvRow.Controls.Add(btnBrowse);
         var btnOpen = MakeBtn("Open folder", 104);
+        btnOpen.Height = BtnH;
         btnOpen.Click += (s, e) =>
         {
             try { Directory.CreateDirectory(Settings.ReceiveDir); Process.Start("explorer.exe", Settings.ReceiveDir); }
@@ -170,16 +176,18 @@ class MainForm : Form
         };
         recvRow.Controls.Add(btnOpen);
 
+        // fixed-height bottom rows in one panel; explicit heights, no margins (docked controls ignore margins)
+        var bottomRows = new Panel { Dock = DockStyle.Bottom, Height = RowH * 2 + 10, Padding = new Padding(0, 6, 0, 4) };
+        bottomRows.Controls.Add(recvRow);   // processed last: sits below the buttons row
+        bottomRows.Controls.Add(buttons);
+
         layout.Controls.Add(pDevices, 0, 0);
         layout.Controls.Add(pQueue, 1, 0);
-        layout.Controls.Add(buttons, 0, 1);
-        layout.SetColumnSpan(buttons, 2);
-        layout.Controls.Add(recvRow, 0, 2);
-        layout.SetColumnSpan(recvRow, 2);
 
         _recvStrip.Controls.Add(_recvInfo);
         _recvStrip.Controls.Add(_recvBar);
         Controls.Add(layout);
+        Controls.Add(bottomRows);
         Controls.Add(_recvStrip);
         Controls.Add(_sendSpeed);
         Controls.Add(_bar);
@@ -455,6 +463,17 @@ class MainForm : Form
         DwmSetWindowAttribute(Handle, 20, ref on, 4); // DWMWA_USE_IMMERSIVE_DARK_MODE: dark title bar (Win10 20H1+)
     }
 
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        // never open taller/wider than the visible screen area
+        var wa = Screen.FromControl(this).WorkingArea;
+        var w = Math.Min(Width, wa.Width);
+        var h = Math.Min(Height, wa.Height);
+        Size = new Size(w, h);
+        Location = new Point(wa.Left + (wa.Width - w) / 2, wa.Top + Math.Max(0, (wa.Height - h) / 2));
+    }
+
     [DllImport("dwmapi.dll")]
     static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
@@ -479,7 +498,7 @@ class MainForm : Form
 
     static Button MakeBtn(string text, int width, bool primary = false)
     {
-        var b = new Button { Text = text, Width = width, Height = 30, FlatStyle = FlatStyle.Flat };
+        var b = new Button { Text = text, Width = width, FlatStyle = FlatStyle.Flat };
         var fa = b.FlatAppearance;
         if (primary)
         {
@@ -501,10 +520,14 @@ class MainForm : Form
         return b;
     }
 
+    // font-relative metrics: row and control heights always match the rendered text at any DPI
+    int BtnH => Font.Height + 12;
+    int RowH => Font.Height + 16;
+
     void SetupList(ListBox lb, DrawItemEventHandler draw)
     {
         lb.DrawMode = DrawMode.OwnerDrawFixed;
-        lb.ItemHeight = 26;
+        lb.ItemHeight = Font.Height + 8;
         lb.BorderStyle = BorderStyle.FixedSingle;
         lb.BackColor = Card;
         lb.ForeColor = Ink;
