@@ -10,16 +10,16 @@ class MainForm : Form
 {
     readonly ListBox _devices = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true };
     readonly ListBox _queueList = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true };
-    readonly TextBox _txtIp = new() { Width = 160, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0xEE, 0xF3, 0xFB) };
-    readonly TextBox _txtDir = new() { Width = 200, ReadOnly = true, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0x8C, 0xA3, 0xC7) };
+    readonly TextBox _txtIp = new() { Width = 160, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0xEE, 0xF3, 0xFB) };
+    readonly TextBox _txtDir = new() { Width = 200, ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0x8C, 0xA3, 0xC7) };
     readonly FlatBar _bar = new() { Dock = DockStyle.Bottom, Height = 6, Margin = new Padding(16, 4, 16, 6) };
-    readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 24, TextAlign = ContentAlignment.MiddleLeft };
-    readonly Label _partials = new() { Dock = DockStyle.Bottom, Height = 20, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(0x6B, 0x72, 0x80) };
+    readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 24, TextAlign = ContentAlignment.MiddleLeft, BackColor = Color.Transparent };
+    readonly Label _partials = new() { Dock = DockStyle.Bottom, Height = 20, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(0x6B, 0x72, 0x80), BackColor = Color.Transparent };
     // live receive strip (incoming transfers) and upload-speed line
-    readonly Panel _recvStrip = new() { Dock = DockStyle.Bottom, Height = 46, Visible = false, Padding = new Padding(16, 4, 16, 2) };
-    readonly Label _recvInfo = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
+    readonly Panel _recvStrip = new() { Dock = DockStyle.Bottom, Height = 46, Visible = false, Padding = new Padding(16, 4, 16, 2), BackColor = Color.Transparent };
+    readonly Label _recvInfo = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, BackColor = Color.Transparent };
     readonly FlatBar _recvBar = new() { Dock = DockStyle.Bottom, Height = 6, Margin = new Padding(16, 0, 16, 2) };
-    readonly Label _sendSpeed = new() { Dock = DockStyle.Bottom, Height = 20, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(0x6B, 0x72, 0x80), Visible = false, Margin = new Padding(16, 2, 0, 0) };
+    readonly Label _sendSpeed = new() { Dock = DockStyle.Bottom, Height = 20, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(0x6B, 0x72, 0x80), Visible = false, Margin = new Padding(16, 2, 0, 0), BackColor = Color.Transparent };
     readonly Panel _divider = new() { Dock = DockStyle.Bottom, Height = 1, BackColor = Line }; // above the status/progress stack
     double _recvSpeedBps;
     long _lastRecvBytes;
@@ -87,13 +87,13 @@ class MainForm : Form
         SetupList(_queueList, DrawQueue);
         _queueList.SelectionMode = SelectionMode.None;
 
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new Padding(12) };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new Padding(12), BackColor = Color.Transparent };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-        var pDevices = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 16, 0) };
-        _ipRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 38, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+        var pDevices = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 16, 0), BackColor = Color.Transparent };
+        _ipRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 38, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, BackColor = Color.Transparent };
         _ipRow.Controls.Add(new Label { Text = "Connect by IP:", AutoSize = true, Margin = new Padding(0, 8, 8, 0), ForeColor = Dim });
         _ipRow.Controls.Add(_txtIp);
         var btnAddIp = MakeBtn("Add by IP", 90);
@@ -105,11 +105,11 @@ class MainForm : Form
         _devLabel = SectionLabel("Devices (auto-discovered on WiFi)");
         pDevices.Controls.Add(_devLabel);
 
-        var pQueue = new Panel { Dock = DockStyle.Fill };
+        var pQueue = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent };
         pQueue.Controls.Add(_queueList);
 
         // ShareIt-style drop zone: click to browse, drop files or folders
-        var drop = new Panel { Dock = DockStyle.Top, Height = 92, BackColor = Card, Padding = new Padding(0, 0, 0, 2) };
+        var drop = new GlassCard { Dock = DockStyle.Top, Height = 92, BackColor = Card, Padding = new Padding(0, 0, 0, 2) };
         var dropMain = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Text = "Drag files or folders here", ForeColor = Ink, Font = new Font("Segoe UI", 11.5f) };
         var dropSub = new Label { Dock = DockStyle.Bottom, Height = 22, TextAlign = ContentAlignment.MiddleCenter, Text = "or click to browse", ForeColor = Dim };
         drop.Controls.Add(dropMain);
@@ -127,7 +127,7 @@ class MainForm : Form
         }
         pQueue.Controls.Add(drop);
 
-        _btnRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false };
+        _btnRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false, BackColor = Color.Transparent };
         var btnAdd = MakeBtn("Add files…", 110);
         btnAdd.Height = BtnH;
         btnAdd.Click += (s, e) => browse();
@@ -163,7 +163,7 @@ class MainForm : Form
             _status.Text = "Cancelled, partial files will resume automatically.";
         };
 
-        _recvRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false };
+        _recvRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false, BackColor = Color.Transparent };
         _recvRow.Controls.Add(new Label { Text = "Save received files to:", AutoSize = true, Margin = new Padding(0, 8, 8, 0) });
         _recvRow.Controls.Add(_txtDir);
         var btnBrowse = MakeBtn("Change…", 86);
@@ -192,13 +192,19 @@ class MainForm : Form
 
         // fixed-height bottom rows in one panel; explicit heights, no margins (docked controls ignore margins)
         _bottomRows = new Panel { Dock = DockStyle.Bottom, Height = RowH * 2 + 31, Padding = new Padding(0, 6, 0, 12) };
-        var rowDiv = new Panel { Dock = DockStyle.Top, Height = 13, BackColor = Bg }; // 12px gap + hairline: send actions vs receive row
+        var rowDiv = new Panel { Dock = DockStyle.Top, Height = 13, BackColor = Color.Transparent }; // 12px glass gap + hairline: send actions vs receive row
         rowDiv.Controls.Add(new Panel { Dock = DockStyle.Bottom, Height = 1, BackColor = Line });
         _bottomRows.Controls.Add(_recvRow);  // processed last: sits at the bottom, below the divider
         _bottomRows.Controls.Add(rowDiv);
         _bottomRows.Controls.Add(_btnRow);
 
         _metricBtns.AddRange(new[] { _btnSend, _btnPause, _btnCancel, btnAddIp, btnAdd, btnFolder, btnBrowse, btnOpen });
+        foreach (var b in _metricBtns) Round(b); // rounded corners on every button
+        Round(drop); // rounded drop card
+        Round(_txtIp);
+        Round(_txtDir);
+        PaintField(_ipRow, _txtIp); // rounded border ring around the borderless fields
+        PaintField(_recvRow, _txtDir);
 
         layout.Controls.Add(pDevices, 0, 0);
         layout.Controls.Add(pQueue, 1, 0);
@@ -573,6 +579,17 @@ class MainForm : Form
         base.OnHandleCreated(e);
         var on = 1;
         DwmSetWindowAttribute(Handle, 20, ref on, 4); // DWMWA_USE_IMMERSIVE_DARK_MODE: dark title bar (Win10 20H1+)
+        var round = 2; // DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND: rounded window corners
+        DwmSetWindowAttribute(Handle, 33, ref round, 4);
+    }
+
+    // frosted "liquid glass" backdrop: a soft vertical ice gradient. Opaque by design: the
+    // system acrylic path composites per-pixel alpha that classic GDI controls never write,
+    // which ghosted the whole UI. Cards add their own sheen so the glass feel lives in them.
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        using var g = new LinearGradientBrush(e.ClipRectangle, Color.FromArgb(0x11, 0x1C, 0x30), Color.FromArgb(0x0C, 0x15, 0x22), 90f);
+        e.Graphics.FillRectangle(g, e.ClipRectangle);
     }
 
     protected override void OnShown(EventArgs e)
@@ -651,6 +668,48 @@ class MainForm : Form
     // font-relative metrics: row and control heights always match the rendered text at any DPI
     int BtnH => Font.Height + 12;
     int RowH => Font.Height + 20;
+
+    // rounded window-region for buttons, cards and fields; reapplied on resize (docked controls resize with the form)
+    void Round(Control c)
+    {
+        var rad = Math.Max(4, Font.Height / 3);
+        Action apply = () =>
+        {
+            var old = c.Region;
+            c.Region = c.Width > 4 && c.Height > 4 ? new Region(RoundedPath(new Rectangle(0, 0, c.Width, c.Height), rad)) : null;
+            old?.Dispose();
+        };
+        c.Resize += (s, e) => apply();
+        apply();
+    }
+
+    // hairline ring around a borderless field, drawn on the parent row so it follows the field's rounded region
+    void PaintField(Control row, Control f)
+    {
+        var rad = Font.Height / 4 + 2;
+        row.Paint += (s, e) =>
+        {
+            var b = f.Bounds; b.Inflate(1, 1);
+            using var path = RoundedPath(b, rad);
+            using var pen = new Pen(Edge);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.DrawPath(pen, path);
+        };
+        f.LocationChanged += (s, e) => row.Invalidate();
+    }
+
+    static internal GraphicsPath RoundedPath(Rectangle r, int rad)
+    {
+        rad = Math.Min(rad, Math.Min(r.Width, r.Height) / 2);
+        var d = rad * 2;
+        var p = new GraphicsPath();
+        p.AddArc(r.X, r.Y, d, d, 180, 90);
+        p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        p.CloseFigure();
+        return p;
+    }
 
     void SetupList(ListBox lb, DrawItemEventHandler draw)
     {
@@ -759,6 +818,28 @@ sealed class RecvSpeed
     public long Bytes;
     public DateTime T;
     public double Speed;
+}
+
+// Glass card: vertical ice fill, a soft top sheen and a hairline rounded border, drawn in the
+// background pass so transparent child labels composite straight over the finish.
+sealed class GlassCard : Panel
+{
+    static readonly Color Edge = Color.FromArgb(0x2A, 0x3E, 0x5F); // same hairline as the app chrome
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        using (var lg = new LinearGradientBrush(e.ClipRectangle, Color.FromArgb(0x1C, 0x2C, 0x48), Color.FromArgb(0x13, 0x20, 0x36), 90f))
+            g.FillRectangle(lg, e.ClipRectangle);
+        // children repaint fill only; sheen and border belong to the card's own full-size pass
+        if (e.ClipRectangle.Location != Point.Empty || e.ClipRectangle.Size != ClientSize || Width < 10 || Height < 10) return;
+        using (var sheen = new LinearGradientBrush(new Rectangle(0, 0, Width, Height / 2), Color.FromArgb(0x18, 0xFF, 0xFF, 0xFF), Color.FromArgb(0, 0xFF, 0xFF, 0xFF), 90f))
+            g.FillRectangle(sheen, new Rectangle(0, 0, Width, Height / 2));
+        using var path = MainForm.RoundedPath(new Rectangle(0, 0, Width - 1, Height - 1), Math.Max(4, Font.Height / 3));
+        using var pen = new Pen(Edge);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.DrawPath(pen, path);
+    }
 }
 
 // Slim rounded progress bar in the app accent; WinForms ProgressBar can't be recolored.
