@@ -126,6 +126,8 @@ class MainForm : Form
             c.Cursor = Cursors.Hand;
             c.Click += (s, e) => browse();
         }
+        // dock layout ignores child margins here, so the design's 8px gap under the drop card is a real spacer
+        pQueue.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 8, BackColor = Color.Transparent });
         pQueue.Controls.Add(drop);
 
         // lists get the same rounded card look; their hairline is painted on the parent like the fields
