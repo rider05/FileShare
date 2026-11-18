@@ -27,6 +27,11 @@ class MainForm : Form
     readonly Button _btnPause = MakeBtn("Pause", 92);
     readonly Button _btnCancel = MakeBtn("Cancel", 92);
 
+    readonly List<Button> _metricBtns = new(); // buttons whose height follows the font, applied post-scale
+    FlowLayoutPanel _ipRow = null!, _btnRow = null!, _recvRow = null!;
+    Panel _bottomRows = null!;
+    Label _devLabel = null!;
+
     Discovery _discovery;
     Receiver _receiver = null!;
     readonly List<TransferItem> _queue = new();
@@ -81,16 +86,17 @@ class MainForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var pDevices = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 16, 0) };
-        var ipRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 38, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
-        ipRow.Controls.Add(new Label { Text = "Connect by IP:", AutoSize = true, Margin = new Padding(3, 8, 3, 0), ForeColor = Dim });
-        ipRow.Controls.Add(_txtIp);
+        _ipRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 38, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+        _ipRow.Controls.Add(new Label { Text = "Connect by IP:", AutoSize = true, Margin = new Padding(3, 8, 3, 0), ForeColor = Dim });
+        _ipRow.Controls.Add(_txtIp);
         var btnAddIp = MakeBtn("Add by IP", 90);
         btnAddIp.Height = BtnH;
         btnAddIp.Click += (s, e) => AddByIp();
-        ipRow.Controls.Add(btnAddIp);
+        _ipRow.Controls.Add(btnAddIp);
         pDevices.Controls.Add(_devices);
-        pDevices.Controls.Add(ipRow);
-        pDevices.Controls.Add(SectionLabel("Devices (auto-discovered on WiFi)"));
+        pDevices.Controls.Add(_ipRow);
+        _devLabel = SectionLabel("Devices (auto-discovered on WiFi)");
+        pDevices.Controls.Add(_devLabel);
 
         var pQueue = new Panel { Dock = DockStyle.Fill };
         pQueue.Controls.Add(_queueList);
@@ -114,11 +120,11 @@ class MainForm : Form
         }
         pQueue.Controls.Add(drop);
 
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false };
+        _btnRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false };
         var btnAdd = MakeBtn("Add files…", 110);
         btnAdd.Height = BtnH;
         btnAdd.Click += (s, e) => browse();
-        buttons.Controls.Add(btnAdd);
+        _btnRow.Controls.Add(btnAdd);
         var btnFolder = MakeBtn("Add folder…", 112);
         btnFolder.Height = BtnH;
         btnFolder.Click += (s, e) =>
@@ -126,10 +132,10 @@ class MainForm : Form
             using var dlg = new FolderBrowserDialog { Description = "Folder to send" };
             if (dlg.ShowDialog(this) == DialogResult.OK) AddFolder(dlg.SelectedPath);
         };
-        buttons.Controls.Add(btnFolder);
-        buttons.Controls.Add(_btnSend);
-        buttons.Controls.Add(_btnPause);
-        buttons.Controls.Add(_btnCancel);
+        _btnRow.Controls.Add(btnFolder);
+        _btnRow.Controls.Add(_btnSend);
+        _btnRow.Controls.Add(_btnPause);
+        _btnRow.Controls.Add(_btnCancel);
         _btnSend.Click += (s, e) => StartRun();
         _btnPause.Click += (s, e) =>
         {
@@ -150,9 +156,9 @@ class MainForm : Form
             _status.Text = "Cancelled, partial files will resume automatically.";
         };
 
-        var recvRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false };
-        recvRow.Controls.Add(new Label { Text = "Save received files to:", AutoSize = true, Margin = new Padding(3, 8, 3, 0) });
-        recvRow.Controls.Add(_txtDir);
+        _recvRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false };
+        _recvRow.Controls.Add(new Label { Text = "Save received files to:", AutoSize = true, Margin = new Padding(3, 8, 3, 0) });
+        _recvRow.Controls.Add(_txtDir);
         var btnBrowse = MakeBtn("Change…", 86);
         btnBrowse.Height = BtnH;
         btnBrowse.Click += (s, e) =>
@@ -166,7 +172,7 @@ class MainForm : Form
                 RestartReceiver();
             }
         };
-        recvRow.Controls.Add(btnBrowse);
+        _recvRow.Controls.Add(btnBrowse);
         var btnOpen = MakeBtn("Open folder", 104);
         btnOpen.Height = BtnH;
         btnOpen.Click += (s, e) =>
@@ -174,12 +180,14 @@ class MainForm : Form
             try { Directory.CreateDirectory(Settings.ReceiveDir); Process.Start("explorer.exe", Settings.ReceiveDir); }
             catch (Exception ex) { _status.Text = "Cannot open folder: " + ex.Message; }
         };
-        recvRow.Controls.Add(btnOpen);
+        _recvRow.Controls.Add(btnOpen);
 
         // fixed-height bottom rows in one panel; explicit heights, no margins (docked controls ignore margins)
-        var bottomRows = new Panel { Dock = DockStyle.Bottom, Height = RowH * 2 + 10, Padding = new Padding(0, 6, 0, 4) };
-        bottomRows.Controls.Add(recvRow);   // processed last: sits below the buttons row
-        bottomRows.Controls.Add(buttons);
+        _bottomRows = new Panel { Dock = DockStyle.Bottom, Height = RowH * 2 + 10, Padding = new Padding(0, 6, 0, 4) };
+        _bottomRows.Controls.Add(_recvRow);  // processed last: sits below the buttons row
+        _bottomRows.Controls.Add(_btnRow);
+
+        _metricBtns.AddRange(new[] { _btnSend, _btnPause, _btnCancel, btnAddIp, btnAdd, btnFolder, btnBrowse, btnOpen });
 
         layout.Controls.Add(pDevices, 0, 0);
         layout.Controls.Add(pQueue, 1, 0);
@@ -187,7 +195,7 @@ class MainForm : Form
         _recvStrip.Controls.Add(_recvInfo);
         _recvStrip.Controls.Add(_recvBar);
         Controls.Add(layout);
-        Controls.Add(bottomRows);
+        Controls.Add(_bottomRows);
         Controls.Add(_recvStrip);
         Controls.Add(_sendSpeed);
         Controls.Add(_bar);
@@ -472,6 +480,22 @@ class MainForm : Form
         var h = Math.Min(Height, wa.Height);
         Size = new Size(w, h);
         Location = new Point(wa.Left + (wa.Width - w) / 2, wa.Top + Math.Max(0, (wa.Height - h) / 2));
+        ApplyMetrics();
+    }
+
+    // Font-relative metrics must be applied AFTER WinForms' one-time DPI auto-scale:
+    // Font.Height is already in physical pixels, and the auto-scale pass would multiply
+    // these bounds again (double-scaling at 125/150%). Assigning here lands them exactly once.
+    void ApplyMetrics()
+    {
+        var fh = Font.Height;
+        foreach (var b in _metricBtns) b.Height = fh + 12;
+        _ipRow.Height = _btnRow.Height = _recvRow.Height = fh + 16;
+        _bottomRows.Height = (fh + 16) * 2 + 10;
+        _recvStrip.Height = fh + 26;
+        _status.Height = _sendSpeed.Height = _partials.Height = fh + 5;
+        _devLabel.Height = fh + 12; // bold 9.75pt + padding needs more than the old fixed 24px
+        _devices.ItemHeight = _queueList.ItemHeight = fh + 8;
     }
 
     [DllImport("dwmapi.dll")]
