@@ -20,6 +20,7 @@ class MainForm : Form
     readonly Label _recvInfo = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
     readonly FlatBar _recvBar = new() { Dock = DockStyle.Bottom, Height = 6, Margin = new Padding(16, 0, 16, 2) };
     readonly Label _sendSpeed = new() { Dock = DockStyle.Bottom, Height = 20, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(0x6B, 0x72, 0x80), Visible = false, Margin = new Padding(16, 2, 0, 0) };
+    readonly Panel _divider = new() { Dock = DockStyle.Bottom, Height = 1, BackColor = Line }; // above the status/progress stack
     double _recvSpeedBps;
     long _lastRecvBytes;
     DateTime _lastRecvTick = DateTime.UtcNow;
@@ -60,6 +61,7 @@ class MainForm : Form
     static readonly Color Bg = Color.FromArgb(0x0E, 0x17, 0x26);
     static readonly Color Card = Color.FromArgb(0x16, 0x23, 0x3A);
     static readonly Color Edge = Color.FromArgb(0x2A, 0x3E, 0x5F);
+    static readonly Color Line = Color.FromArgb(0x1E, 0x2F, 0x49); // hairline dividers (design statusbar border)
     // avatar circle colors, picked per device name
     static readonly Color[] AvatarCols = {
         Color.FromArgb(0x00, 0xA6, 0xFF), Color.FromArgb(0x7C, 0x5C, 0xFF), Color.FromArgb(0x00, 0xC9, 0xA7),
@@ -92,7 +94,7 @@ class MainForm : Form
 
         var pDevices = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 16, 0) };
         _ipRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 38, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
-        _ipRow.Controls.Add(new Label { Text = "Connect by IP:", AutoSize = true, Margin = new Padding(3, 8, 3, 0), ForeColor = Dim });
+        _ipRow.Controls.Add(new Label { Text = "Connect by IP:", AutoSize = true, Margin = new Padding(0, 8, 8, 0), ForeColor = Dim });
         _ipRow.Controls.Add(_txtIp);
         var btnAddIp = MakeBtn("Add by IP", 90);
         btnAddIp.Height = BtnH;
@@ -162,7 +164,7 @@ class MainForm : Form
         };
 
         _recvRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false };
-        _recvRow.Controls.Add(new Label { Text = "Save received files to:", AutoSize = true, Margin = new Padding(3, 8, 3, 0) });
+        _recvRow.Controls.Add(new Label { Text = "Save received files to:", AutoSize = true, Margin = new Padding(0, 8, 8, 0) });
         _recvRow.Controls.Add(_txtDir);
         var btnBrowse = MakeBtn("Change…", 86);
         btnBrowse.Height = BtnH;
@@ -189,8 +191,11 @@ class MainForm : Form
         _recvRow.Controls.Add(btnOpen);
 
         // fixed-height bottom rows in one panel; explicit heights, no margins (docked controls ignore margins)
-        _bottomRows = new Panel { Dock = DockStyle.Bottom, Height = RowH * 2 + 10, Padding = new Padding(0, 6, 0, 4) };
-        _bottomRows.Controls.Add(_recvRow);  // processed last: sits below the buttons row
+        _bottomRows = new Panel { Dock = DockStyle.Bottom, Height = RowH * 2 + 31, Padding = new Padding(0, 6, 0, 12) };
+        var rowDiv = new Panel { Dock = DockStyle.Top, Height = 13, BackColor = Bg }; // 12px gap + hairline: send actions vs receive row
+        rowDiv.Controls.Add(new Panel { Dock = DockStyle.Bottom, Height = 1, BackColor = Line });
+        _bottomRows.Controls.Add(_recvRow);  // processed last: sits at the bottom, below the divider
+        _bottomRows.Controls.Add(rowDiv);
         _bottomRows.Controls.Add(_btnRow);
 
         _metricBtns.AddRange(new[] { _btnSend, _btnPause, _btnCancel, btnAddIp, btnAdd, btnFolder, btnBrowse, btnOpen });
@@ -202,6 +207,7 @@ class MainForm : Form
         _recvStrip.Controls.Add(_recvBar);
         Controls.Add(layout);
         Controls.Add(_bottomRows);
+        Controls.Add(_divider); // design statusbar border-top: separates content from the status zone
         Controls.Add(_recvStrip);
         Controls.Add(_sendSpeed);
         Controls.Add(_bar);
@@ -587,9 +593,9 @@ class MainForm : Form
     void ApplyMetrics()
     {
         var fh = Font.Height;
-        foreach (var b in _metricBtns) b.Height = fh + 12;
-        _ipRow.Height = _btnRow.Height = _recvRow.Height = fh + 16;
-        _bottomRows.Height = (fh + 16) * 2 + 10;
+        foreach (var b in _metricBtns) { b.Height = BtnH; b.Margin = new Padding(0, (RowH - BtnH) / 2, fh / 2, 0); } // uniform 8px-class gaps, vertically centered
+        _ipRow.Height = _btnRow.Height = _recvRow.Height = RowH;
+        _bottomRows.Height = RowH * 2 + 31; // two rows + 13px divider band + 6/12 padding
         _recvStrip.Height = fh + 26;
         _status.Height = _sendSpeed.Height = _partials.Height = fh + 5;
         _devLabel.Height = fh + 12; // bold 9.75pt + padding needs more than the old fixed 24px
@@ -644,7 +650,7 @@ class MainForm : Form
 
     // font-relative metrics: row and control heights always match the rendered text at any DPI
     int BtnH => Font.Height + 12;
-    int RowH => Font.Height + 16;
+    int RowH => Font.Height + 20;
 
     void SetupList(ListBox lb, DrawItemEventHandler draw)
     {
