@@ -12,14 +12,19 @@ plan.md              architecture + protocol spec
 
 ## Windows
 
-Build (requires the .NET 8 SDK; this machine has it at `%LOCALAPPDATA%\dotnet-sdk`):
+Run anywhere, no install: `out\windows\FileShare.exe` is a **self-contained single file (about 63 MB)** with the .NET runtime bundled and compressed. No "install .NET" prompt on a fresh PC.
+
+Build for development (needs the .NET 8 SDK; this machine has it at `%LOCALAPPDATA%\dotnet-sdk`):
 
 ```
 dotnet build D:\FileShare\FileShare.Win -c Release
 ```
 
-Run: `D:\FileShare\FileShare.Win\bin\Release\net8.0-windows\FileShare.exe`
-(If `dotnet` complains about missing frameworks, set `DOTNET_ROOT=%LOCALAPPDATA%\dotnet-sdk` first, or install the full .NET 8 Desktop runtime.)
+Rebuild the standalone exe:
+
+```
+dotnet publish D:\FileShare\FileShare.Win -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:SatelliteResourceLanguages=en -o out\windows
+```
 
 Protocol self-test (loopback: clean send + hard-disconnect + auto-resume + nested-folder send, hash-verified):
 
@@ -36,7 +41,7 @@ cd D:\FileShare\FileShare.Android
 .\gradlew :app:assembleDebug
 ```
 
-APK: `app\build\outputs\apk\debug\app-debug.apk` (8.4 MB)
+APK: `app\build\outputs\apk\debug\app-debug.apk` (2.2 MB)
 
 Install on a phone: enable "Install unknown apps" for your file manager/browser, copy the APK over, or with USB debugging on: `adb install app\build\outputs\apk\debug\app-debug.apk`
 
