@@ -43,6 +43,7 @@ class MainForm : Form
     List<RecvRow> _recvRows = new();
     readonly Dictionary<RecvInfo, RecvSpeed> _recvSpeeds = new();
     CancellationTokenSource? _sendCts;
+    readonly Rectangle _placeWa = Screen.PrimaryScreen!.WorkingArea;
     CancellationTokenSource? _pauseCts;
     bool _running, _paused;
     readonly System.Windows.Forms.Timer _timer = new() { Interval = 500 };
@@ -126,6 +127,12 @@ class MainForm : Form
             c.Click += (s, e) => browse();
         }
         pQueue.Controls.Add(drop);
+
+        // lists get the same rounded card look; their hairline is painted on the parent like the fields
+        Round(_devices);
+        Round(_queueList);
+        PaintField(pDevices, _devices);
+        PaintField(pQueue, _queueList);
 
         _btnRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = RowH, WrapContents = false, BackColor = Color.Transparent };
         var btnAdd = MakeBtn("Add files…", 110);
@@ -237,6 +244,14 @@ class MainForm : Form
         var s = DeviceDpi / 96f;
         Scale(new SizeF(s, s));
         MinimumSize = new Size((int)(700 * s), (int)(480 * s));
+        var wa = Screen.PrimaryScreen!.WorkingArea;
+        if (Width > wa.Width || Height > wa.Height) Size = new Size(Math.Min(Width, wa.Width), Math.Min(Height, wa.Height));
+        ApplyMetrics();
+        DoubleBuffered = true;
+        // open offscreen and jump onscreen once painted: freshly created child surfaces are
+        // unpainted, and the visible first frame showed garbage through them (see OnShown)
+        StartPosition = FormStartPosition.Manual;
+        Location = new Point(-20000, -20000);
     }
 
     void StartReceiver()
@@ -581,7 +596,17 @@ class MainForm : Form
         DwmSetWindowAttribute(Handle, 20, ref on, 4); // DWMWA_USE_IMMERSIVE_DARK_MODE: dark title bar (Win10 20H1+)
         var round = 2; // DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND: rounded window corners
         DwmSetWindowAttribute(Handle, 33, ref round, 4);
+        // 26H2 ignores the dark-mode flag for the ACTIVE caption and draws a warm gray material,
+        // so force the caption, border and caption text colors to the app palette
+        var caption = ToColorRef(Bg);
+        DwmSetWindowAttribute(Handle, 35, ref caption, 4); // DWMWA_CAPTION_COLOR
+        var border = ToColorRef(Edge);
+        DwmSetWindowAttribute(Handle, 34, ref border, 4); // DWMWA_BORDER_COLOR
+        var text = ToColorRef(Ink);
+        DwmSetWindowAttribute(Handle, 36, ref text, 4); // DWMWA_TEXT_COLOR
     }
+
+    static int ToColorRef(Color c) => c.R | (c.G << 8) | (c.B << 16);
 
     // frosted "liquid glass" backdrop: a soft vertical ice gradient. Opaque by design: the
     // system acrylic path composites per-pixel alpha that classic GDI controls never write,
@@ -595,13 +620,18 @@ class MainForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        // never open taller/wider than the visible screen area
-        var wa = Screen.FromControl(this).WorkingArea;
-        var w = Math.Min(Width, wa.Width);
-        var h = Math.Min(Height, wa.Height);
-        Size = new Size(w, h);
-        Location = new Point(wa.Left + (wa.Width - w) / 2, wa.Top + Math.Max(0, (wa.Height - h) / 2));
-        ApplyMetrics();
+        // DWM never schedules a paint for a fully offscreen window, so nothing would ever
+        // paint out there; force every surface to paint now, then jump onscreen complete
+        RefreshTree(this);
+        BeginInvoke(new Action(() =>
+            Location = new Point(_placeWa.Left + (_placeWa.Width - Width) / 2,
+                                 _placeWa.Top + Math.Max(0, (_placeWa.Height - Height) / 2))));
+    }
+
+    static void RefreshTree(Control c)
+    {
+        c.Refresh(); // synchronous paint of this surface
+        foreach (Control k in c.Controls) RefreshTree(k);
     }
 
     // Font-relative metrics must be applied AFTER WinForms' one-time DPI auto-scale:
@@ -672,7 +702,7 @@ class MainForm : Form
     // rounded window-region for buttons, cards and fields; reapplied on resize (docked controls resize with the form)
     void Round(Control c)
     {
-        var rad = Math.Max(4, Font.Height / 3);
+        var rad = Math.Max(6, Font.Height / 2);
         Action apply = () =>
         {
             var old = c.Region;
@@ -686,7 +716,7 @@ class MainForm : Form
     // hairline ring around a borderless field, drawn on the parent row so it follows the field's rounded region
     void PaintField(Control row, Control f)
     {
-        var rad = Font.Height / 4 + 2;
+        var rad = Math.Max(6, Font.Height / 2);
         row.Paint += (s, e) =>
         {
             var b = f.Bounds; b.Inflate(1, 1);
@@ -715,7 +745,6 @@ class MainForm : Form
     {
         lb.DrawMode = DrawMode.OwnerDrawFixed;
         lb.ItemHeight = Font.Height + 8;
-        lb.BorderStyle = BorderStyle.FixedSingle;
         lb.BackColor = Card;
         lb.ForeColor = Ink;
         lb.DrawItem += draw;
@@ -835,7 +864,7 @@ sealed class GlassCard : Panel
         if (e.ClipRectangle.Location != Point.Empty || e.ClipRectangle.Size != ClientSize || Width < 10 || Height < 10) return;
         using (var sheen = new LinearGradientBrush(new Rectangle(0, 0, Width, Height / 2), Color.FromArgb(0x18, 0xFF, 0xFF, 0xFF), Color.FromArgb(0, 0xFF, 0xFF, 0xFF), 90f))
             g.FillRectangle(sheen, new Rectangle(0, 0, Width, Height / 2));
-        using var path = MainForm.RoundedPath(new Rectangle(0, 0, Width - 1, Height - 1), Math.Max(4, Font.Height / 3));
+        using var path = MainForm.RoundedPath(new Rectangle(0, 0, Width - 1, Height - 1), Math.Max(6, Font.Height / 2));
         using var pen = new Pen(Edge);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.DrawPath(pen, path);
