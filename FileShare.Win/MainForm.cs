@@ -10,7 +10,7 @@ class MainForm : Form
 {
     readonly ListBox _devices = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true };
     readonly ListBox _queueList = new() { Dock = DockStyle.Fill, HorizontalScrollbar = true };
-    readonly TextBox _txtIp = new() { Width = 160, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0xEE, 0xF3, 0xFB) };
+    readonly TextBox _txtIp = new() { Width = 130, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0xEE, 0xF3, 0xFB) };
     readonly TextBox _txtDir = new() { Width = 200, ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = Color.FromArgb(0x16, 0x23, 0x3A), ForeColor = Color.FromArgb(0x8C, 0xA3, 0xC7) };
     readonly FlatBar _bar = new() { Dock = DockStyle.Bottom, Height = 6, Margin = new Padding(16, 4, 16, 6) };
     readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 24, TextAlign = ContentAlignment.MiddleLeft, BackColor = Color.Transparent };
