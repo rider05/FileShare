@@ -45,10 +45,14 @@ sealed class Discovery : IDisposable
     }
 
     // Auto-detect every live IPv4 interface and announce on its own subnet broadcast,
-    // plus the global 255.255.255.255. Recomputed each tick so adapter/hotspot changes
-    // are picked up automatically (VPN, WSL, Hyper-V adapters don't forward broadcasts).
+    // plus the global 255.255.255.255. Adapter enumeration is the priciest part of the
+    // tick, so results are cached briefly; adapter/hotspot changes are still picked up.
+    static List<IPAddress> _bcCache = new();
+    static DateTime _bcCacheAt = DateTime.MinValue;
+
     static List<IPAddress> BroadcastTargets()
     {
+        if ((DateTime.UtcNow - _bcCacheAt).TotalSeconds < 20) return _bcCache;
         var targets = new List<IPAddress> { IPAddress.Broadcast };
         try
         {
@@ -70,6 +74,8 @@ sealed class Discovery : IDisposable
             }
         }
         catch { /* fall back to the global broadcast only */ }
+        _bcCache = targets;
+        _bcCacheAt = DateTime.UtcNow;
         return targets;
     }
 

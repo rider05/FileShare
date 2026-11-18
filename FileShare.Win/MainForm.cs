@@ -38,11 +38,13 @@ class MainForm : Form
     readonly List<Peer> _manual = new();
     List<Peer> _shown = new();
     int _lastPeerCount;
+    string _lastQueueSig = "", _lastDevSig = "";
     CancellationTokenSource? _sendCts;
     CancellationTokenSource? _pauseCts;
     bool _running, _paused;
     readonly System.Windows.Forms.Timer _timer = new() { Interval = 500 };
-    int _tickCount;
+    FileSystemWatcher? _partWatcher;
+    int _partialCount;
 
     // ShareIt-style dark palette
     static readonly Color Ink = Color.FromArgb(0xEE, 0xF3, 0xFB);
@@ -170,6 +172,7 @@ class MainForm : Form
                 Settings.Save();
                 _txtDir.Text = Settings.ReceiveDir;
                 RestartReceiver();
+                ResetPartialsTracking();
             }
         };
         _recvRow.Controls.Add(btnBrowse);
@@ -208,10 +211,11 @@ class MainForm : Form
         _discovery.Changed += () => { try { BeginInvoke((MethodInvoker)RefreshDevices); } catch (ObjectDisposedException) { } };
         StartReceiver();
 
-        _timer.Tick += (s, e) => { _tickCount++; RefreshQueue(); UpdateReceive(); if (_tickCount % 4 == 0) RefreshPartials(); };
+        _timer.Tick += (s, e) => { RefreshQueue(); UpdateReceive(); };
         _timer.Start();
         RefreshDevices();
-        RefreshPartials();
+        SetupPartialsWatcher();
+        Task.Run(InitialPartialsScan);
     }
 
     void StartReceiver()
@@ -349,14 +353,20 @@ class MainForm : Form
     void RefreshDevices()
     {
         var all = _manual.Concat(_discovery.Snapshot()).GroupBy(p => p.Ip).Select(g => g.First()).ToList();
+        // rebuild the list only when the peer set actually changed, not on every 2s discovery ping
+        var sig = string.Join(";", all.Select(p => $"{p.Name}|{p.Ip}|{p.TcpPort}"));
         var sel = SelectedIp;
-        _shown = all;
-        _devices.BeginUpdate();
-        _devices.Items.Clear();
-        foreach (var p in all) _devices.Items.Add(p);
-        _devices.EndUpdate();
-        var idx = all.FindIndex(p => p.Ip == sel);
-        if (idx >= 0) _devices.SelectedIndex = idx;
+        if (sig != _lastDevSig)
+        {
+            _lastDevSig = sig;
+            _shown = all;
+            _devices.BeginUpdate();
+            _devices.Items.Clear();
+            foreach (var p in all) _devices.Items.Add(p);
+            _devices.EndUpdate();
+            var idx = all.FindIndex(p => p.Ip == sel);
+            if (idx >= 0) _devices.SelectedIndex = idx;
+        }
 
         if (_lastPeerCount == 0 && all.Count > 0 && _btnSend.Enabled)
             _status.Text = $"Device found: {all[0].Name} ({all[0].Ip})";
@@ -379,10 +389,16 @@ class MainForm : Form
             }
         }
 
-        _queueList.BeginUpdate();
-        _queueList.Items.Clear();
-        foreach (var i in _queue) _queueList.Items.Add(i.DisplayName); // state rendered in DrawQueue
-        _queueList.EndUpdate();
+        // rebuild the list only when something visible changed; idle ticks stay free
+        var sig = string.Join("|", _queue.Select(i => $"{i.State}:{i.Progress}:{(long)i.SpeedBps}:{i.Error}:{i.Size}:{i.DisplayName}"));
+        if (sig != _lastQueueSig)
+        {
+            _lastQueueSig = sig;
+            _queueList.BeginUpdate();
+            _queueList.Items.Clear();
+            foreach (var i in _queue) _queueList.Items.Add(i.DisplayName); // state rendered in DrawQueue
+            _queueList.EndUpdate();
+        }
 
         var active = _queue.FirstOrDefault(i => i.State is TransferState.Sending or TransferState.Reconnecting or TransferState.Hashing or TransferState.Connecting);
         _bar.Fraction = active is { Size: > 0 } a ? Math.Clamp(a.Progress / (double)a.Size, 0, 1) : 0;
@@ -441,16 +457,61 @@ class MainForm : Form
         return $"{sec / 3600}h {sec % 3600 / 60}m";
     }
 
-    void RefreshPartials()
+    // Partial count is a hint label; the old version re-enumerated the whole receive tree every 2s,
+    // which burns CPU when the receive dir is large (users can point it at a whole drive).
+    // Count once at startup in the background, then track changes with a FileSystemWatcher.
+    void SetupPartialsWatcher()
+    {
+        try
+        {
+            var w = new FileSystemWatcher(Settings.ReceiveDir, "*.part")
+            {
+                IncludeSubdirectories = true,
+                InternalBufferSize = 65536,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
+            };
+            w.Created += (s, e) => { try { BeginInvoke((MethodInvoker)(() => { _partialCount++; RefreshPartialsLabel(); })); } catch (ObjectDisposedException) { } };
+            w.Deleted += (s, e) => { try { BeginInvoke((MethodInvoker)(() => { _partialCount--; RefreshPartialsLabel(); })); } catch (ObjectDisposedException) { } };
+            w.Renamed += (s, e) => { try
+            {
+                BeginInvoke((MethodInvoker)(() =>
+                {
+                    if (e.OldName?.EndsWith(".part", StringComparison.OrdinalIgnoreCase) == true) _partialCount--;
+                    if (e.Name?.EndsWith(".part", StringComparison.OrdinalIgnoreCase) == true) _partialCount++;
+                    RefreshPartialsLabel();
+                }));
+            } catch (ObjectDisposedException) { } };
+            w.Error += (s, e) => Task.Run(InitialPartialsScan); // buffer overflow → recount once
+            w.EnableRaisingEvents = true;
+            _partWatcher = w;
+        }
+        catch { /* dir missing or unwritable → label just stays empty */ }
+    }
+
+    void InitialPartialsScan()
     {
         try
         {
             var n = Directory.EnumerateFiles(Settings.ReceiveDir, "*.part",
                 new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }).Count();
-            _partials.Text = n == 0 ? "" : $"Partials waiting to auto-resume on re-send: {n}";
+            try { BeginInvoke((MethodInvoker)(() => { _partialCount = n; RefreshPartialsLabel(); })); }
+            catch (ObjectDisposedException) { }
         }
-        catch { }
+        catch { /* dir missing */ }
     }
+
+    void ResetPartialsTracking()
+    {
+        try { _partWatcher?.Dispose(); } catch { }
+        _partWatcher = null;
+        _partialCount = 0;
+        RefreshPartialsLabel();
+        SetupPartialsWatcher();
+        Task.Run(InitialPartialsScan);
+    }
+
+    void RefreshPartialsLabel() =>
+        _partials.Text = _partialCount == 0 ? "" : $"Partials waiting to auto-resume on re-send: {_partialCount}";
 
     static string Fmt(long b)
     {
@@ -636,7 +697,13 @@ sealed class FlatBar : Control
     public double Fraction
     {
         get => _frac;
-        set { _frac = Math.Clamp(value, 0, 1); Invalidate(); }
+        set
+        {
+            var v = Math.Clamp(value, 0, 1);
+            if (v == _frac) return; // no repaint when the fraction didn't move
+            _frac = v;
+            Invalidate();
+        }
     }
 
     public FlatBar()

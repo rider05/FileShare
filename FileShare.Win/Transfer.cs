@@ -124,7 +124,7 @@ static class Sender
             catch (HashMismatchException)
             {
                 item.State = TransferState.Failed;
-                item.Error = "corrupted — resending will start over";
+                item.Error = "corrupted, resending will start over";
                 onTick?.Invoke(item);
                 throw;
             }
