@@ -720,7 +720,7 @@ class MainForm : Form
         row.Paint += (s, e) =>
         {
             var b = f.Bounds; b.Inflate(1, 1);
-            using var path = RoundedPath(b, rad);
+            using var path = RoundedPath(b, rad + 1); // +1 keeps the ring concentric with the control's rounded region
             using var pen = new Pen(Edge);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             e.Graphics.DrawPath(pen, path);
@@ -745,6 +745,7 @@ class MainForm : Form
     {
         lb.DrawMode = DrawMode.OwnerDrawFixed;
         lb.ItemHeight = Font.Height + 8;
+        lb.BorderStyle = BorderStyle.None; // default Fixed3D draws a white system border outside the rounded region
         lb.BackColor = Card;
         lb.ForeColor = Ink;
         lb.DrawItem += draw;
