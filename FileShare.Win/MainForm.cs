@@ -39,6 +39,8 @@ class MainForm : Form
     List<Peer> _shown = new();
     int _lastPeerCount;
     string _lastQueueSig = "", _lastDevSig = "";
+    List<RecvRow> _recvRows = new();
+    readonly Dictionary<RecvInfo, RecvSpeed> _recvSpeeds = new();
     CancellationTokenSource? _sendCts;
     CancellationTokenSource? _pauseCts;
     bool _running, _paused;
@@ -68,7 +70,8 @@ class MainForm : Form
     {
         Text = "FileShare";
         Font = new Font("Segoe UI", 9.5f);
-        AutoScaleMode = AutoScaleMode.Dpi; // scale layout with the display, not just the fonts
+        AutoScaleMode = AutoScaleMode.None; // the built-in pass never fires for a runtime-built form (no design baseline);
+                                            // we scale the layout ourselves once at the end of the ctor
         BackColor = Bg;
         ForeColor = Ink;
         Size = new Size(920, 640);
@@ -216,6 +219,12 @@ class MainForm : Form
         RefreshDevices();
         SetupPartialsWatcher();
         Task.Run(InitialPartialsScan);
+
+        // fonts render at DeviceDpi; the layout was designed at 96 dpi, so scale it once to match
+        // (PMv2 process: the form is born at the monitor's DPI, no WM_DPICHANGED rescale ever arrives)
+        var s = DeviceDpi / 96f;
+        Scale(new SizeF(s, s));
+        MinimumSize = new Size((int)(700 * s), (int)(480 * s));
     }
 
     void StartReceiver()
@@ -389,14 +398,42 @@ class MainForm : Form
             }
         }
 
+        // incoming transfers: snapshot one row each + per-file speed smoothing (same model as sends)
+        var actives = _receiver.Active.Keys;
+        foreach (var info in actives)
+        {
+            if (!_recvSpeeds.TryGetValue(info, out var prev))
+            {
+                prev = new RecvSpeed { Bytes = info.Received, T = now };
+                _recvSpeeds[info] = prev; // store the first sample, or dt stays 0 forever
+            }
+            var dt = (now - prev.T).TotalSeconds;
+            if (dt >= 0.4)
+            {
+                var inst = Math.Max(0, info.Received - prev.Bytes) / dt;
+                prev.Speed = prev.Speed == 0 ? inst : inst * 0.3 + prev.Speed * 0.7;
+                prev.Bytes = info.Received;
+                prev.T = now;
+            }
+        }
+        _recvRows = actives.Select(k => new RecvRow
+        {
+            Name = k.Name, Ip = k.Ip, Size = k.Size, Received = k.Received,
+            SpeedBps = _recvSpeeds.TryGetValue(k, out var sv) ? sv.Speed : 0,
+        }).ToList();
+        var gone = _recvSpeeds.Keys.Where(k => !actives.Contains(k)).ToList();
+        foreach (var k in gone) _recvSpeeds.Remove(k);
+
         // rebuild the list only when something visible changed; idle ticks stay free
-        var sig = string.Join("|", _queue.Select(i => $"{i.State}:{i.Progress}:{(long)i.SpeedBps}:{i.Error}:{i.Size}:{i.DisplayName}"));
+        var sig = string.Join("|", _queue.Select(i => $"{i.State}:{i.Progress}:{(long)i.SpeedBps}:{i.Error}:{i.Size}:{i.DisplayName}"))
+            + "#" + string.Join("|", _recvRows.Select(r => $"{r.Name}:{r.Received}:{r.Size}:{(long)r.SpeedBps}"));
         if (sig != _lastQueueSig)
         {
             _lastQueueSig = sig;
             _queueList.BeginUpdate();
             _queueList.Items.Clear();
             foreach (var i in _queue) _queueList.Items.Add(i.DisplayName); // state rendered in DrawQueue
+            foreach (var r in _recvRows) _queueList.Items.Add(r.Name);     // incoming, rendered from _recvRows
             _queueList.EndUpdate();
         }
 
@@ -642,7 +679,18 @@ class MainForm : Form
 
     void DrawQueue(object? s, DrawItemEventArgs e)
     {
-        if (e.Index < 0 || e.Index >= _queue.Count) return;
+        if (e.Index < 0) return;
+        if (e.Index >= _queue.Count)
+        {
+            // incoming files share the list, drawn from the live receiver snapshot
+            var ri = e.Index - _queue.Count;
+            if (ri >= _recvRows.Count) return;
+            var r = _recvRows[ri];
+            var pct = r.Size > 0 ? 100.0 * r.Received / r.Size : 0;
+            var speed = r.SpeedBps > 0 ? $", {Fmt((long)r.SpeedBps)}/s" : "";
+            DrawRow(e, r.Name, Ink, $"Receiving, {pct:F0}%{speed}", SendC, false);
+            return;
+        }
         var i = _queue[e.Index];
         var (right, rightColor, nameColor) = i.State switch
         {
@@ -667,10 +715,6 @@ class MainForm : Form
         if (selected)
             using (var bg = new SolidBrush(AccentSel)) e.Graphics.FillRectangle(bg, e.Bounds);
         var f = e.Font!;
-        using var sfL = new StringFormat { LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter };
-        using var sfR = new StringFormat { LineAlignment = StringAlignment.Center };
-        using var bl = new SolidBrush(leftColor);
-        using var br = new SolidBrush(rightColor);
         var r = new Rectangle(e.Bounds.X + 8, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 16), e.Bounds.Height);
         var leftX = r.X;
         if (avatar != '\0')
@@ -683,11 +727,32 @@ class MainForm : Form
             e.Graphics.DrawString(char.ToUpperInvariant(avatar).ToString(), f, Brushes.White, c, sa);
             leftX = c.Right + 8;
         }
-        var rw = right.Length == 0 ? 0 : (int)e.Graphics.MeasureString(right, f, r.Width).Width;
+        // TextRenderer (GDI) pair with SingleLine: GDI+ DrawString wraps inside a rect sized by its own
+        // MeasureString, which dropped long right labels onto a second line and crowded out the name
+        const TextFormatFlags rf = TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix;
+        var rw = right.Length == 0 ? 0 : TextRenderer.MeasureText(right, f, Size.Empty, rf).Width;
+        rw = Math.Min(rw, Math.Max(0, r.Width - 80)); // the name always keeps some room
         if (rw > 0)
-            e.Graphics.DrawString(right, f, br, new Rectangle(r.Right - rw, r.Y, rw, r.Height), sfR);
-        e.Graphics.DrawString(left, f, bl, new Rectangle(leftX, r.Y, Math.Max(0, r.Right - rw - 12 - leftX), r.Height), sfL);
+            TextRenderer.DrawText(e.Graphics, right, f, new Rectangle(r.Right - rw, r.Y, rw + 4, r.Height), rightColor, rf);
+        var lw = Math.Max(0, r.Right - rw - 12 - leftX);
+        TextRenderer.DrawText(e.Graphics, left, f, new Rectangle(leftX, r.Y, lw, r.Height), leftColor, rf | TextFormatFlags.EndEllipsis);
     }
+}
+
+// One in-flight incoming file, shown as a row in the transfers list.
+sealed class RecvRow
+{
+    public string Name = "", Ip = "";
+    public long Size, Received;
+    public double SpeedBps;
+}
+
+// per-file receive-speed smoothing state
+sealed class RecvSpeed
+{
+    public long Bytes;
+    public DateTime T;
+    public double Speed;
 }
 
 // Slim rounded progress bar in the app accent; WinForms ProgressBar can't be recolored.
