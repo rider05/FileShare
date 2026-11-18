@@ -199,8 +199,9 @@ class MainForm : Form
         };
         _recvRow.Controls.Add(btnOpen);
 
-        // fixed-height bottom rows in one panel; explicit heights, no margins (docked controls ignore margins)
-        _bottomRows = new Panel { Dock = DockStyle.Bottom, Height = RowH * 2 + 31, Padding = new Padding(0, 6, 0, 12) };
+        // fixed-height bottom rows in one panel; explicit heights, no margins (docked controls ignore margins).
+        // 12px side padding aligns these rows with the card columns, so buttons clear the window border
+        _bottomRows = new Panel { Dock = DockStyle.Bottom, Height = RowH * 2 + 31, Padding = new Padding(12, 6, 12, 12) };
         var rowDiv = new Panel { Dock = DockStyle.Top, Height = 13, BackColor = Color.Transparent }; // 12px glass gap + hairline: send actions vs receive row
         rowDiv.Controls.Add(new Panel { Dock = DockStyle.Bottom, Height = 1, BackColor = Line });
         _bottomRows.Controls.Add(_recvRow);  // processed last: sits at the bottom, below the divider
