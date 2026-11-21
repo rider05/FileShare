@@ -47,13 +47,13 @@ Install on a phone: enable "Install unknown apps" for your file manager/browser,
 
 ## Using it
 
-1. Both devices on the same WiFi (router or phone hotspot). Windows firewall prompt on first run → allow on **private networks**.
+1. Both devices on the same WiFi (router or phone hotspot). Windows firewall prompt on first run → tick **both** Private and Public networks: a hotspot with no internet is often classified Public, and ticking only Private blocks discovery and transfers there. No internet connection is used or needed: discovery and transfers stay on the local network.
 2. Each app **auto-detects** the other on every network interface (WiFi, Ethernet, VPN, phone-hotspot subnets — UDP broadcast discovery, port 53515). Blocked? Use **Connect by IP**.
 3. Select a device, pick **files or folders**, send.
    - **Windows:** "Add files…", "Add folder…", or drag files/folders onto the window. A folder arrives on the receiver with its structure intact (`Photos\2026\trip.jpg`).
    - **Android:** "Pick files", "Folder" (whole folder tree), or **Share → FileShare** from any app (photos, videos, docs, multiple files), then pick a device and hit Send.
    - Received files: Windows → `Documents\FileShare` (configurable, subfolders created as needed); Android → `Downloads/FileShare/<subfolder>` via MediaStore.
-4. Live progress everywhere: Windows shows a receive strip (device name, file, %, MB/s, ETA) plus an up-speed line for sends; Android shows per-file progress and a foreground notification with % and bytes.
+4. Live progress everywhere: Windows shows a receive strip (device name, file, %, MB/s, ETA) plus an up-speed line for sends; Android shows a percentage and progress bar on every sending and receiving file, and a foreground notification with % and bytes. Sockets use 1 MB buffers and TCP no-delay on both ends.
 4. If the connection drops mid-transfer, the sender retries with backoff (up to 6 attempts) and resumes from the receiver's exact byte offset. Cancelled/failed sends resume on re-send; nothing is ever re-downloaded from zero unless the file changed.
 
 ## Ports

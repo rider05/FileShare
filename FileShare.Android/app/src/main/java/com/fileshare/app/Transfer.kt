@@ -96,6 +96,7 @@ object Sender {
                     Socket().use { s ->
                         s.soTimeout = 30_000
                         s.tcpNoDelay = true
+                        s.sendBufferSize = 1 shl 20
                         s.connect(InetSocketAddress(host, port), 10_000)
                         val out = s.getOutputStream()
                         val input = BufferedInputStream(s.getInputStream(), 65536)
@@ -168,7 +169,12 @@ object Sender {
 }
 
 // Mirrors Receiver in Transfer.cs: sequential write, fsync + meta checkpoints, hash verify, publish.
-class Receiver(private val ctx: Context, private val onReceived: (String, Uri?) -> Unit) {
+class Receiver(
+    private val ctx: Context,
+    private val onReceived: (String, Uri?) -> Unit,
+    private val onProgress: (String, Long, Long) -> Unit = { _, _, _ -> },
+    private val onEnd: (String) -> Unit = {},
+) {
     private var server: ServerSocket? = null
 
     @Volatile
@@ -208,6 +214,7 @@ class Receiver(private val ctx: Context, private val onReceived: (String, Uri?) 
         try {
             client.soTimeout = 30_000
             client.tcpNoDelay = true
+            client.receiveBufferSize = 1 shl 20
             client.use { s ->
                 val input = BufferedInputStream(s.getInputStream(), 65536)
                 val out = s.getOutputStream()
@@ -220,6 +227,7 @@ class Receiver(private val ctx: Context, private val onReceived: (String, Uri?) 
                 for (c in "\\/:*?\"<>|") name = name.replace(c, '_')
                 val rel = safeRel(header.optString("path"))
                 if (size < 0) return
+                val label = if (rel.isEmpty()) name else "$rel/$name"
 
                 // files from a transferred folder land in a matching subfolder; guard the canonical result
                 val root = receiveDir().canonicalFile
@@ -233,80 +241,91 @@ class Receiver(private val ctx: Context, private val onReceived: (String, Uri?) 
 
                 val gate = locks.getOrPut((if (rel.isEmpty()) "" else "$rel/") + name.lowercase()) { Any() }
                 synchronized(gate) {
-                    var resume = 0L
-                    if (part.exists() && meta.exists()) {
-                        try {
-                            val m = JSONObject(meta.readText())
-                            if (m.getLong("size") == size && m.optString("sha") == sha) {
-                                val done = m.getLong("done")
-                                if (done in 0..size && part.length() >= done) resume = done
-                            }
-                        } catch (e: Exception) { /* corrupt meta → fresh start */ }
-                    }
-                    lastResumeOffset = resume
-                    writeLine(out, JSONObject().put("resume", resume).toString())
+                    try {
+                        var resume = 0L
+                        if (part.exists() && meta.exists()) {
+                            try {
+                                val m = JSONObject(meta.readText())
+                                if (m.getLong("size") == size && m.optString("sha") == sha) {
+                                    val done = m.getLong("done")
+                                    if (done in 0..size && part.length() >= done) resume = done
+                                }
+                            } catch (e: Exception) { /* corrupt meta → fresh start */ }
+                        }
+                        lastResumeOffset = resume
+                        writeLine(out, JSONObject().put("resume", resume).toString())
+                        onProgress(label, size, resume)
 
-                    val md = MessageDigest.getInstance("SHA-256")
-                    RandomAccessFile(part, "rw").use { raf ->
-                        if (raf.length() < size) raf.setLength(size) // preallocate
-                        raf.seek(resume)
-                        if (resume > 0) {
-                            // hash the trusted prefix already on disk
-                            raf.seek(0)
-                            val pb = ByteArray(Tx.chunk)
-                            var left = resume
-                            while (left > 0) {
-                                val n = raf.read(pb, 0, minOf(pb.size.toLong(), left).toInt())
-                                if (n <= 0) throw EOFException()
-                                md.update(pb, 0, n)
-                                left -= n
-                            }
+                        val md = MessageDigest.getInstance("SHA-256")
+                        RandomAccessFile(part, "rw").use { raf ->
+                            if (raf.length() < size) raf.setLength(size) // preallocate
                             raf.seek(resume)
+                            if (resume > 0) {
+                                // hash the trusted prefix already on disk
+                                raf.seek(0)
+                                val pb = ByteArray(Tx.chunk)
+                                var left = resume
+                                while (left > 0) {
+                                    val n = raf.read(pb, 0, minOf(pb.size.toLong(), left).toInt())
+                                    if (n <= 0) throw EOFException()
+                                    md.update(pb, 0, n)
+                                    left -= n
+                                }
+                                raf.seek(resume)
+                            }
+
+                            val ins = s.getInputStream()
+                            val buf = ByteArray(Tx.chunk)
+                            var received = resume
+                            var lastCp = resume
+                            var lastAck = resume
+                            var lastReport = 0L
+                            while (received < size) {
+                                val n = ins.read(buf)
+                                if (n <= 0) throw IOException("connection lost at $received/$size")
+                                raf.write(buf, 0, n)
+                                md.update(buf, 0, n)
+                                received += n
+                                val nowMs = System.currentTimeMillis()
+                                if (nowMs - lastReport >= 250) {
+                                    lastReport = nowMs
+                                    onProgress(label, size, received)
+                                }
+                                if (received - lastCp >= Tx.checkpointEvery) {
+                                    raf.fd.sync()
+                                    writeMeta(meta, size, sha, received)
+                                    lastCp = received
+                                }
+                                if (received - lastAck >= Tx.ackEvery) {
+                                    writeLine(out, JSONObject().put("ack", received).toString())
+                                    lastAck = received
+                                }
+                            }
+                            raf.fd.sync()
+                            writeMeta(meta, size, sha, received)
                         }
 
-                        val ins = s.getInputStream()
-                        val buf = ByteArray(Tx.chunk)
-                        var received = resume
-                        var lastCp = resume
-                        var lastAck = resume
-                        while (received < size) {
-                            val n = ins.read(buf)
-                            if (n <= 0) throw IOException("connection lost at $received/$size")
-                            raf.write(buf, 0, n)
-                            md.update(buf, 0, n)
-                            received += n
-                            if (received - lastCp >= Tx.checkpointEvery) {
-                                raf.fd.sync()
-                                writeMeta(meta, size, sha, received)
-                                lastCp = received
-                            }
-                            if (received - lastAck >= Tx.ackEvery) {
-                                writeLine(out, JSONObject().put("ack", received).toString())
-                                lastAck = received
-                            }
+                        val digest = md.digest().joinToString("") { "%02x".format(it) }
+                        if (digest != sha.lowercase()) {
+                            part.delete()
+                            meta.delete()
+                            writeLine(out, JSONObject().put("ok", false).put("reason", "hash").toString())
+                            return
                         }
-                        raf.fd.sync()
-                        writeMeta(meta, size, sha, received)
-                    }
 
-                    val digest = md.digest().joinToString("") { "%02x".format(it) }
-                    if (digest != sha.lowercase()) {
-                        part.delete()
-                        meta.delete()
-                        writeLine(out, JSONObject().put("ok", false).put("reason", "hash").toString())
-                        return
+                        val published = publish(part, name, rel)
+                        if (published != null) {
+                            part.delete()
+                            meta.delete()
+                        } else {
+                            part.renameTo(File(dir, name))
+                            meta.delete()
+                        }
+                        writeLine(out, JSONObject().put("ok", true).toString())
+                        onReceived(label, published)
+                    } finally {
+                        onEnd(label)
                     }
-
-                    val published = publish(part, name, rel)
-                    if (published != null) {
-                        part.delete()
-                        meta.delete()
-                    } else {
-                        part.renameTo(File(dir, name))
-                        meta.delete()
-                    }
-                    writeLine(out, JSONObject().put("ok", true).toString())
-                    onReceived(if (rel.isEmpty()) name else "$rel/$name", published)
                 }
             }
         } catch (e: Exception) {

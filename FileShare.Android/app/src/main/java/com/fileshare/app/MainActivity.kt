@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
         setContentView(webView)
 
         // any Repo change re-renders the page
-        listOf(Repo.peers, Repo.transfers, Repo.received, Repo.pendingUris).forEach { f ->
+        listOf(Repo.peers, Repo.transfers, Repo.receiving, Repo.received, Repo.pendingUris).forEach { f ->
             scope.launch { f.collect { pushNow() } }
         }
     }
@@ -120,6 +120,11 @@ class MainActivity : ComponentActivity() {
                             .put("error", t.error ?: JSONObject.NULL)
                             .put("active", t.state in activeStates),
                     )
+                }
+            })
+            .put("recv", JSONArray().apply {
+                Repo.receiving.value.forEach { r ->
+                    put(JSONObject().put("name", r.name).put("size", r.size).put("got", r.received))
                 }
             })
             .put("received", JSONArray().apply {

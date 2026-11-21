@@ -70,7 +70,7 @@ static class Sender
                 item.State = attempt == 1 ? TransferState.Connecting : TransferState.Reconnecting;
                 onTick?.Invoke(item);
 
-                using var client = new TcpClient { SendTimeout = 30_000, ReceiveTimeout = 30_000 };
+                using var client = new TcpClient { SendTimeout = 30_000, ReceiveTimeout = 30_000, NoDelay = true, SendBufferSize = 1 << 20 };
                 await client.ConnectAsync(host, port, ct);
                 await using var stream = client.GetStream();
 
@@ -198,6 +198,9 @@ sealed class Receiver : IDisposable
             {
                 client.ReceiveTimeout = 30_000;
                 client.SendTimeout = 30_000;
+                client.NoDelay = true;
+                client.ReceiveBufferSize = 1 << 20;
+                client.SendBufferSize = 1 << 20;
                 var stream = client.GetStream();
 
                 using var header = JsonDocument.Parse(await Proto.ReadLineAsync(stream, ct));

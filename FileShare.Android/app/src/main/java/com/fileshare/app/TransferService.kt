@@ -30,6 +30,7 @@ class TransferService : Service() {
     private var lastIp: String? = null
     private lateinit var receiver: Receiver
     private var lastNotif = 0L
+    private var lastRecvNotif = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -38,7 +39,12 @@ class TransferService : Service() {
             NotificationChannel(CH, "FileShare", NotificationManager.IMPORTANCE_LOW),
         )
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        receiver = Receiver(this) { name, uri -> Repo.addReceived(ReceivedFile(name, uri)) }
+        receiver = Receiver(
+            this,
+            onReceived = { name, uri -> Repo.addReceived(ReceivedFile(name, uri)) },
+            onProgress = { label, size, got -> Repo.setRecv(label, size, got); notifyRecv(label, size, got) },
+            onEnd = { label -> Repo.clearRecv(label); endRecv() },
+        )
         receiver.start(scope)
         Discovery.start(this) { list -> Repo.setDiscovered(list) }
         startFg("Ready")
@@ -128,6 +134,27 @@ class TransferService : Service() {
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, n)
     }
 
+    private fun notifyRecv(label: String, size: Long, got: Long) {
+        val now = System.currentTimeMillis()
+        if (now - lastRecvNotif < 500) return
+        lastRecvNotif = now
+        val pct = if (size > 0) ((got * 100) / size).coerceIn(0, 99).toInt() else 0
+        val n = NotificationCompat.Builder(this, CH)
+            .setSmallIcon(android.R.drawable.ic_menu_save)
+            .setContentTitle("Receiving $label")
+            .setContentText("$pct%, ${fmtBytes(got)} of ${fmtBytes(size)}")
+            .setProgress(100, pct, false)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, n)
+    }
+
+    // a finished receive only resets the notification when no send owns it
+    private fun endRecv() {
+        if (Repo.transfers.value.none { it.state in activeSend }) startFg("Ready")
+    }
+
     private fun startFg(text: String) {
         val n = NotificationCompat.Builder(this, CH)
             .setSmallIcon(android.R.drawable.ic_menu_send)
@@ -203,3 +230,5 @@ class TransferService : Service() {
         )
     }
 }
+
+private val activeSend = setOf(TState.HASHING, TState.CONNECTING, TState.SENDING, TState.RECONNECTING)

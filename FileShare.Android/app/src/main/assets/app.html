@@ -145,12 +145,21 @@ function render(s) {
           + '<div class="tr1"><span class="lbl">' + esc(t.label) + '</span><span class="acts">' + acts + '</span></div>'
           + '<div class="mtrack"><div class="mfill' + (t.state === "PAUSED" ? " hold" : "") + '" style="width:' + pct.toFixed(1) + '%"></div></div>'
           + '<div class="tr2"><span class="' + (CLS[t.state] || "st-dim") + '">' + (WORDS[t.state] || t.state) + '</span>, '
-          + fmt(t.progress) + ' of ' + fmt(t.size) + err + '</div></div>';
+          + Math.round(pct) + '%, ' + fmt(t.progress) + ' of ' + fmt(t.size) + err + '</div></div>';
       }).join("");
 
-  document.getElementById("rlist").innerHTML = s.received.length === 0
-    ? '<div class="empty">Files sent to this phone appear here.</div>'
-    : s.received.map(function(f) {
+  var incoming = s.recv.map(function(r) {
+    var pct = r.size > 0 ? Math.min(100, r.got / r.size * 100) : 0;
+    return '<div class="trow">'
+      + '<div class="tr1"><span class="lbl">' + esc(r.name) + '</span></div>'
+      + '<div class="mtrack"><div class="mfill" style="width:' + pct.toFixed(1) + '%"></div></div>'
+      + '<div class="tr2"><span class="st-act">receiving</span>, ' + Math.round(pct) + '%, '
+      + fmt(r.got) + ' of ' + fmt(r.size) + '</div></div>';
+  }).join("");
+
+  document.getElementById("rlist").innerHTML =
+    (incoming || (s.received.length === 0 ? '<div class="empty">Files sent to this phone appear here.</div>' : ""))
+    + s.received.map(function(f) {
         return '<div class="rrow"><span class="lbl">' + esc(f.name) + '</span>'
           + (f.open ? '<button class="tbtn" data-act="open" data-at="' + f.at + '">Open</button>' : "")
           + '</div>';
