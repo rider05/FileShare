@@ -349,25 +349,26 @@ class MainForm : Form
         _status.Text = $"Sending {items.Count} file(s) to {peer.Name}…";
         Task.Run(async () =>
         {
-            foreach (var it in items)
+            var gate = new SemaphoreSlim(Tx.MaxParallel);
+            var runs = items.Select(async it =>
             {
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, pauseCts.Token);
+                try { await gate.WaitAsync(linked.Token); }
+                catch (OperationCanceledException) { return; } // never started, stays Pending for the next run
                 try
                 {
                     await Sender.SendAsync(it, ip, peer.TcpPort, null, linked.Token);
                 }
                 catch (OperationCanceledException)
                 {
-                    if (pauseCts.IsCancellationRequested)
-                    {
-                        it.State = TransferState.Paused; // receiver's offset corrects any overshoot on resume
-                        break;
-                    }
-                    it.State = TransferState.Cancelled;
-                    break;
+                    // receiver's offset corrects any overshoot on resume
+                    it.State = pauseCts.IsCancellationRequested ? TransferState.Paused : TransferState.Cancelled;
                 }
                 catch { /* item marked Failed inside Sender */ }
-            }
+                finally { gate.Release(); }
+            });
+            await Task.WhenAll(runs);
+            gate.Dispose();
             _running = false;
             try
             {
@@ -467,13 +468,19 @@ class MainForm : Form
             _queueList.EndUpdate();
         }
 
-        var active = _queue.FirstOrDefault(i => i.State is TransferState.Sending or TransferState.Reconnecting or TransferState.Hashing or TransferState.Connecting);
-        _bar.Fraction = active is { Size: > 0 } a ? Math.Clamp(a.Progress / (double)a.Size, 0, 1) : 0;
+        var sending = _queue.Where(i => i.State is TransferState.Sending or TransferState.Reconnecting
+            or TransferState.Hashing or TransferState.Connecting).ToList();
+        long total = sending.Sum(i => i.Size), done = sending.Sum(i => i.Progress), speed = sending.Sum(i => i.SpeedBps);
+        _bar.Fraction = total > 0 ? Math.Clamp(done / (double)total, 0, 1) : 0;
 
-        if (active is { SpeedBps: > 0 } up)
+        if (sending.Count > 0 && speed > 0)
         {
-            var eta = up.Size > up.Progress ? Eta((long)((up.Size - up.Progress) / up.SpeedBps)) : "";
-            _sendSpeed.Text = $"Up {Fmt(up.SpeedBps)}/s, {Pct(up)}{(eta.Length > 0 ? $", ETA {eta}" : "")}";
+            var pct = total > 0 ? (int)(100.0 * done / total) : 0;
+            var eta = sending.Count == 1 && sending[0].Size > sending[0].Progress
+                ? Eta((long)((sending[0].Size - sending[0].Progress) / speed)) : "";
+            _sendSpeed.Text = $"Up {Fmt(speed)}/s, {pct}%"
+                + (sending.Count > 1 ? $", {sending.Count} files" : "")
+                + (eta.Length > 0 ? $", ETA {eta}" : "");
             _sendSpeed.Visible = true;
         }
         else _sendSpeed.Visible = false;

@@ -17,6 +17,7 @@ static class Tx
     internal static long CheckpointEvery = 64L << 20; // 64 MB fsync + meta checkpoint
     internal static long AckEvery = 8L << 20;         // 8 MB cumulative ack
     internal const int ChunkSize = 1 << 20;           // 1 MB streaming buffer
+    internal const int MaxParallel = 4;               // files in flight at once; each file stays one TCP stream
     internal const int MaxAttempts = 6;
 }
 

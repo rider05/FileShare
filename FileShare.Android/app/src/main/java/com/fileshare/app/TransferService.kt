@@ -19,8 +19,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 // Foreground service so Android does not kill long (50 GB) transfers; owns discovery + receiver + send queue.
 class TransferService : Service() {
@@ -101,19 +104,31 @@ class TransferService : Service() {
         queueJob?.cancel()
         queueJob = scope.launch {
             val port = Repo.peers.value.firstOrNull { it.ip == ip }?.tcp ?: Discovery.TCP_PORT
-            for (item in items) {
-                try {
-                    Sender.send(applicationContext, item, ip, port) {
-                        Repo.tick()
-                        notifyProgress(item)
+            try {
+                coroutineScope {
+                    val gate = Semaphore(Tx.maxParallel)
+                    for (item in items) {
+                        launch {
+                            var started = false
+                            try {
+                                gate.withPermit {
+                                    started = true
+                                    Sender.send(applicationContext, item, ip, port) {
+                                        Repo.tick()
+                                        notifyProgress(item)
+                                    }
+                                }
+                            } catch (e: CancellationException) {
+                                // waiting items stay PENDING so the next Send picks them up
+                                if (started) {
+                                    item.state = if (paused) TState.PAUSED else TState.CANCELLED
+                                    Repo.tick()
+                                }
+                            } catch (e: Exception) { /* state set by Sender */ }
+                        }
                     }
-                } catch (e: CancellationException) {
-                    // Sender already set CANCELLED; override when the pause was deliberate
-                    item.state = if (paused) TState.PAUSED else TState.CANCELLED
-                    Repo.tick()
-                    break
-                } catch (e: Exception) { /* state set by Sender */ }
-            }
+                }
+            } catch (e: CancellationException) { /* children already marked */ }
             startFg(if (paused) "Paused, Resume to continue" else "Idle")
         }
     }
@@ -122,11 +137,14 @@ class TransferService : Service() {
         val now = System.currentTimeMillis()
         if (now - lastNotif < 500) return
         lastNotif = now
-        val pct = if (item.size > 0) ((item.progress * 100) / item.size).coerceIn(0, 99).toInt() else 0
+        val list = Repo.transfers.value.filter { it.state in activeSend }.ifEmpty { listOf(item) }
+        val done = list.sumOf { it.progress }
+        val total = list.sumOf { it.size }
+        val pct = if (total > 0) ((done * 100) / total).coerceIn(0, 99).toInt() else 0
         val n = NotificationCompat.Builder(this, CH)
             .setSmallIcon(android.R.drawable.ic_menu_send)
-            .setContentTitle("Sending ${item.label}")
-            .setContentText("$pct%, ${fmtBytes(item.progress)} of ${fmtBytes(item.size)}")
+            .setContentTitle(if (list.size > 1) "Sending ${list.size} files" else "Sending ${item.label}")
+            .setContentText("$pct%, ${fmtBytes(done)} of ${fmtBytes(total)}")
             .setProgress(100, pct, false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

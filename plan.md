@@ -9,7 +9,7 @@ TCP already retransmits lost packets itself. What actually kills big transfers i
 2. **32-bit size overflow** past 4 GB → solved with **64-bit sizes everywhere** (`long` / `Long`), the #1 large-file bug.
 3. **Memory blowups** → solved with **strict streaming**, never reading the file into memory.
 
-So: no per-chunk bitmaps, no parallel streams — TCP guarantees ordering, and one WiFi link gains nothing from parallelism. Resume = remember the byte offset, reconnect, seek, continue.
+So: no per-chunk bitmaps, one TCP stream per file, and up to 4 files in flight at once to hide per-file handshake and hashing latency; a single file is never split across streams. Resume = remember the byte offset, reconnect, seek, continue.
 
 ## Stack (unchanged)
 

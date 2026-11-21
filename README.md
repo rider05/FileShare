@@ -53,7 +53,7 @@ Install on a phone: enable "Install unknown apps" for your file manager/browser,
    - **Windows:** "Add files…", "Add folder…", or drag files/folders onto the window. A folder arrives on the receiver with its structure intact (`Photos\2026\trip.jpg`).
    - **Android:** "Pick files", "Folder" (whole folder tree), or **Share → FileShare** from any app (photos, videos, docs, multiple files), then pick a device and hit Send.
    - Received files: Windows → `Documents\FileShare` (configurable, subfolders created as needed); Android → `Downloads/FileShare/<subfolder>` via MediaStore.
-4. Live progress everywhere: Windows shows a receive strip (device name, file, %, MB/s, ETA) plus an up-speed line for sends; Android shows a percentage and progress bar on every sending and receiving file, and a foreground notification with % and bytes. Sockets use 1 MB buffers and TCP no-delay on both ends.
+4. Live progress everywhere: Windows shows a receive strip (device name, file, %, MB/s, ETA) plus an aggregate up-speed line for sends; Android shows a percentage and progress bar on every sending and receiving file, and a foreground notification with % and bytes. Up to **4 files transfer in parallel** (one TCP stream per file), with 1 MB socket buffers and TCP no-delay on both ends, so a folder of files does not wait on one handshake at a time and a clean 5 GHz link can reach 80 Mbps. The WiFi link remains the ceiling.
 4. If the connection drops mid-transfer, the sender retries with backoff (up to 6 attempts) and resumes from the receiver's exact byte offset. Cancelled/failed sends resume on re-send; nothing is ever re-downloaded from zero unless the file changed.
 
 ## Ports

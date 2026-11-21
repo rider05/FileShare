@@ -67,6 +67,20 @@ static class SelfTest
             Check(File.Exists(gotNested), "nested file landed in subfolder");
             Check(Sender.Sha256Async(gotNested, CancellationToken.None).GetAwaiter().GetResult() == expected, "nested file hash matches");
 
+            // 4) four files in flight at once to one receiver (parallel queue path)
+            var parItems = new List<TransferItem>();
+            for (int i = 0; i < 4; i++)
+            {
+                var p = System.IO.Path.Combine(dir, $"par{i}.bin");
+                File.Copy(src, p);
+                parItems.Add(new TransferItem { Path = p, Size = new FileInfo(p).Length });
+            }
+            var par = parItems.Select(it =>
+                Sender.SendAsync(it, "127.0.0.1", Proto.TcpPort, null, CancellationToken.None)).ToArray();
+            Task.WhenAll(par).GetAwaiter().GetResult();
+            Check(parItems.All(i => i.State == TransferState.Done), "4 parallel transfers complete");
+            Check(parItems.All(i => File.Exists(System.IO.Path.Combine(recvDir, i.Name))), "parallel files all arrived");
+
             Console.WriteLine("SELFTEST PASSED");
             return 0;
         }

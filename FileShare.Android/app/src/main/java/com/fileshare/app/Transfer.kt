@@ -33,6 +33,7 @@ object Tx {
     var checkpointEvery = 64L shl 20 // 64 MB fsync + meta checkpoint
     var ackEvery = 8L shl 20        // 8 MB cumulative ack
     const val chunk = 1 shl 20      // 1 MB streaming buffer
+    const val maxParallel = 4       // files in flight at once; each file stays one TCP stream
     const val maxAttempts = 6
 }
 
@@ -122,13 +123,18 @@ object Sender {
                                 ch.position(resume)
                                 val buf = ByteArray(Tx.chunk)
                                 var sent = resume
+                                var lastTick = 0L
                                 while (true) {
                                     val n = ch.read(ByteBuffer.wrap(buf))
                                     if (n <= 0) break
                                     out.write(buf, 0, n)
                                     sent += n
                                     item.progress = sent
-                                    onTick()
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastTick >= 250) { // several files tick at once, do not re-render per chunk
+                                        lastTick = now
+                                        onTick()
+                                    }
                                 }
                             }
                         }
@@ -239,7 +245,7 @@ class Receiver(
                 val part = File(dir, "$name.part")
                 val meta = File(dir, "$name.part.meta")
 
-                val gate = locks.getOrPut((if (rel.isEmpty()) "" else "$rel/") + name.lowercase()) { Any() }
+                val gate = locks.computeIfAbsent((if (rel.isEmpty()) "" else "$rel/") + name.lowercase()) { Any() }
                 synchronized(gate) {
                     try {
                         var resume = 0L
